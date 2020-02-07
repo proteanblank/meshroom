@@ -23,6 +23,7 @@ class FisheyeCircle(desc.CommandLineNode):
             label='Center X offset',
             description='Fisheye visibillity circle offset in X (pixels).',
             value=0.0,
+            range=(-1000.0, 1000.0, 0.01),
             uid=[0],
         ),
         desc.FloatParam(
@@ -30,6 +31,7 @@ class FisheyeCircle(desc.CommandLineNode):
             label='Center Y offset',
             description='Fisheye visibillity circle offset in Y (pixels).',
             value=0.0,
+            range=(-1000.0, 1000.0, 0.01),
             uid=[0],
         ),
         desc.FloatParam(
@@ -37,6 +39,7 @@ class FisheyeCircle(desc.CommandLineNode):
             label='Radius',
             description='Fisheye visibillity circle radius (pixels).',
             value=100.0,
+            range=(0.0, 100000.0, 0.01),
             uid=[0],
         ),
         desc.ChoiceParam(

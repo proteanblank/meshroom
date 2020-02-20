@@ -37,9 +37,9 @@ class FisheyeCircle(desc.CommandLineNode):
         desc.FloatParam(
             name='radius',
             label='Radius',
-            description='Fisheye visibillity circle radius (pixels).',
+            description='Fisheye visibillity circle radius (% of image shortest side).',
             value=100.0,
-            range=(0.0, 100000.0, 0.01),
+            range=(0.0, 100.0, 0.01),
             uid=[0],
         ),
         desc.ChoiceParam(

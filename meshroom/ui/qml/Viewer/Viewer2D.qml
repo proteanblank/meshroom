@@ -57,6 +57,36 @@ FocusScope {
         }
     }
 
+    // mouse area
+    MouseArea {
+        anchors.fill: parent
+        property double factor: 1.2
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        onPressed: {
+            image.forceActiveFocus()
+            if(mouse.button & Qt.MiddleButton || (mouse.button & Qt.LeftButton && mouse.modifiers & Qt.ShiftModifier))
+                drag.target = image // start drag
+        }
+        onReleased: {
+            drag.target = undefined // stop drag
+            if(mouse.button & Qt.RightButton) {
+                var menu = contextMenu.createObject(root);
+                menu.x = mouse.x;
+                menu.y = mouse.y;
+                menu.open()
+            }
+        }
+        onWheel: {
+            var zoomFactor = wheel.angleDelta.y > 0 ? factor : 1/factor
+            if(Math.min(image.width*image.scale*zoomFactor, image.height*image.scale*zoomFactor) < 10)
+                return
+            var point = mapToItem(image, wheel.x, wheel.y)
+            image.x += (1-zoomFactor) * point.x * image.scale
+            image.y += (1-zoomFactor) * point.y * image.scale
+            image.scale *= zoomFactor
+        }
+    }
+
     // Main Image
     Image {
         id: image
@@ -117,44 +147,35 @@ FocusScope {
                 })
             }
         }
-    }
 
+        Connections {
+            target: _reconstuction
+            onFisheyeCircleChanged: console.warn("fisheyeCircle: " + _reconstruction.fisheyeCircle)
+        }
+
+        // FisheyeCircleViewer: display fisheye circle
+        // note: use a Loader to evaluate if a FisheyeCircle node exist and displayFisheyeCircle checked at runtime
+        Loader {
+            anchors.centerIn: parent
+            active: (_reconstruction.fisheyeCircle && displayFisheyeCircleLoader.item.checked)
+            sourceComponent: CircleGizmo {
+                x: _reconstruction.fisheyeCircle.attribute("offsetx").value
+                y: _reconstruction.fisheyeCircle.attribute("offsety").value
+                radius: Math.min(image.width, image.height) * 0.5 * (_reconstruction.fisheyeCircle.attribute("radius").value * 0.01)
+
+                onMoved: {
+                    _reconstruction.setAttribute(_reconstruction.fisheyeCircle.attribute("offsetx"), x)
+                    _reconstruction.setAttribute(_reconstruction.fisheyeCircle.attribute("offsety"), y)
+                }
+            }
+        }
+    }
 
     // Busy indicator
     BusyIndicator {
         anchors.centerIn: parent
         // running property binding seems broken, only dynamic binding assignment works
         Component.onCompleted: running = Qt.binding(function() { return image.status === Image.Loading })
-    }
-
-    // mouse area
-    MouseArea {
-        anchors.fill: parent
-        property double factor: 1.2
-        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-        onPressed: {
-            image.forceActiveFocus()
-            if(mouse.button & Qt.MiddleButton || (mouse.button & Qt.LeftButton && mouse.modifiers & Qt.ShiftModifier))
-                drag.target = image // start drag
-        }
-        onReleased: {
-            drag.target = undefined // stop drag
-            if(mouse.button & Qt.RightButton) {
-                var menu = contextMenu.createObject(root);
-                menu.x = mouse.x;
-                menu.y = mouse.y;
-                menu.open()
-            }
-        }
-        onWheel: {
-            var zoomFactor = wheel.angleDelta.y > 0 ? factor : 1/factor
-            if(Math.min(image.width*image.scale*zoomFactor, image.height*image.scale*zoomFactor) < 10)
-                return
-            var point = mapToItem(image, wheel.x, wheel.y)
-            image.x += (1-zoomFactor) * point.x * image.scale
-            image.y += (1-zoomFactor) * point.y * image.scale
-            image.scale *= zoomFactor
-        }
     }
 
     FloatingPane {
@@ -241,6 +262,19 @@ FocusScope {
                 ToolTip.text: "Display Features"
                 checkable: true
                 text: MaterialIcons.scatter_plot
+            }
+
+
+            Loader {
+                id: displayFisheyeCircleLoader
+                active: _reconstruction.fisheyeCircle
+                sourceComponent: MaterialToolButton {
+                    font.pointSize: 11
+                    ToolTip.text: "Display Fisheye Circle"
+                    checkable: true
+                    checked: false
+                    text: MaterialIcons.panorama_fish_eye
+                }
             }
 
             Item {

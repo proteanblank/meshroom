@@ -394,9 +394,9 @@ class Reconstruction(UIGraph):
         # - Texturing
         self._texturing = None
 
-        # - Fisheye
-        self._fisheyeCircle = None
-        self.cameraInitChanged.connect(self.updateFisheyeCircleNode)
+        # - PanoramaInit
+        self._panoramaInit = None
+        self.cameraInitChanged.connect(self.updatePanoramaInitNode)
 
         # react to internal graph changes to update those variables
         self.graphChanged.connect(self.onGraphChanged)
@@ -451,7 +451,7 @@ class Reconstruction(UIGraph):
         self.prepareDenseScene = None
         self.depthMap = None
         self.texturing = None
-        self.fisheyeCircle = None
+        self.panoramaInit = None
         self.updateCameraInits()
         if not self._graph:
             return
@@ -496,9 +496,9 @@ class Reconstruction(UIGraph):
         """ Set the current FeatureExtraction node based on the current CameraInit node. """
         self.depthMap = self.lastNodeOfType('DepthMapFilter', self.cameraInit) if self.cameraInit else None
 
-    def updateFisheyeCircleNode(self):
+    def updatePanoramaInitNode(self):
         """ Set the current FeatureExtraction node based on the current CameraInit node. """
-        self.fisheyeCircle = self.lastNodeOfType('FisheyeCircle', self.cameraInit) if self.cameraInit else None
+        self.panoramaInit = self.lastNodeOfType('PanoramaInit', self.cameraInit) if self.cameraInit else None
 
     def lastSfmNode(self):
         """ Retrieve the last SfM node from the initial CameraInit node. """
@@ -807,8 +807,8 @@ class Reconstruction(UIGraph):
             self.prepareDenseScene = node
         elif node.nodeType in ("DepthMap", "DepthMapFilter"):
             self.depthMap = node
-        elif node.nodeType == "FisheyeCircle":
-            self.fisheyeCircle = node
+        elif node.nodeType == "PanoramaInit":
+            self.panoramaInit = node
 
     def updateSfMResults(self):
         """
@@ -979,8 +979,8 @@ class Reconstruction(UIGraph):
     texturingChanged = Signal()
     texturing = makeProperty(QObject, "_texturing", notify=texturingChanged)
 
-    fisheyeCircleChanged = Signal()
-    fisheyeCircle = makeProperty(QObject, "_fisheyeCircle", notify=fisheyeCircleChanged, resetOnDestroy=True)
+    panoramaInitChanged = Signal()
+    panoramaInit = makeProperty(QObject, "_panoramaInit", notify=panoramaInitChanged, resetOnDestroy=True)
 
     nbCameras = Property(int, reconstructedCamerasCount, notify=sfmReportChanged)
 

@@ -149,23 +149,23 @@ FocusScope {
         }
 
         Connections {
-            target: _reconstuction
-            onFisheyeCircleChanged: console.warn("fisheyeCircle: " + _reconstruction.fisheyeCircle)
+            target: _reconstruction
+            onPanoramaInitChanged: console.warn("PanoramaInit: " + _reconstruction.panoramaInit)
         }
 
         // FisheyeCircleViewer: display fisheye circle
-        // note: use a Loader to evaluate if a FisheyeCircle node exist and displayFisheyeCircle checked at runtime
+        // note: use a Loader to evaluate if a PanoramaInit node exist and displayFisheyeCircle checked at runtime
         Loader {
             anchors.centerIn: parent
-            active: (_reconstruction.fisheyeCircle && displayFisheyeCircleLoader.item.checked)
+            active: (_reconstruction.panoramaInit && displayFisheyeCircleLoader.item.checked)
             sourceComponent: CircleGizmo {
-                x: _reconstruction.fisheyeCircle.attribute("offsetx").value
-                y: _reconstruction.fisheyeCircle.attribute("offsety").value
-                radius: Math.min(image.width, image.height) * 0.5 * (_reconstruction.fisheyeCircle.attribute("radius").value * 0.01)
+                x: _reconstruction.panoramaInit.attribute("fisheyeCenterOffset.x").value
+                y: _reconstruction.panoramaInit.attribute("fisheyeCenterOffset.y").value
+                radius: Math.min(image.width, image.height) * 0.5 * (_reconstruction.panoramaInit.attribute("fisheyeRadius").value * 0.01)
 
                 onMoved: {
-                    _reconstruction.setAttribute(_reconstruction.fisheyeCircle.attribute("offsetx"), x)
-                    _reconstruction.setAttribute(_reconstruction.fisheyeCircle.attribute("offsety"), y)
+                    _reconstruction.setAttribute(_reconstruction.panoramaInit.attribute("fisheyeCenterOffset.x"), x)
+                    _reconstruction.setAttribute(_reconstruction.panoramaInit.attribute("fisheyeCenterOffset.y"), y)
                 }
             }
         }
@@ -267,7 +267,7 @@ FocusScope {
 
             Loader {
                 id: displayFisheyeCircleLoader
-                active: _reconstruction.fisheyeCircle
+                active: _reconstruction.panoramaInit
                 sourceComponent: MaterialToolButton {
                     font.pointSize: 11
                     ToolTip.text: "Display Fisheye Circle"

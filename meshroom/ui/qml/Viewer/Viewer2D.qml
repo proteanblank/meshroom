@@ -162,6 +162,7 @@ FocusScope {
                 x: _reconstruction.panoramaInit.attribute("fisheyeCenterOffset.x").value
                 y: _reconstruction.panoramaInit.attribute("fisheyeCenterOffset.y").value
                 radius: Math.min(image.width, image.height) * 0.5 * (_reconstruction.panoramaInit.attribute("fisheyeRadius").value * 0.01)
+                border.width: Math.max(1, (3.0 / (image.scale)))
 
                 onMoved: {
                     _reconstruction.setAttribute(_reconstruction.panoramaInit.attribute("fisheyeCenterOffset.x"), x)

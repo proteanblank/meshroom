@@ -50,6 +50,7 @@ class TaskThread(Thread):
             except TypeError:
                 continue
 
+            node.preprocess()
             for cId, chunk in enumerate(node.chunks):
                 if chunk.isFinishedOrRunning() or not self.isRunning():
                     continue
@@ -78,6 +79,7 @@ class TaskThread(Thread):
                                 # Node already removed (for instance a global clear of _nodesToProcess)
                                 pass
                             n.clearSubmittedChunks()
+            node.postprocess()
 
             if stopAndRestart:
                 break
@@ -199,6 +201,9 @@ class TaskManager(BaseObject):
             self.checkDuplicates(nodes, "COMPUTATION")  # name of the context is important for QML
 
             nodes = [node for node in nodes if not self.contains(node)]  # be sure to avoid non-real conflicts
+            nodes = list(set(nodes))
+            nodes = sorted(nodes, key=lambda x: x.depth)
+
             chunksInConflict = self.getAlreadySubmittedChunks(nodes)
 
             if chunksInConflict:
@@ -206,11 +211,8 @@ class TaskManager(BaseObject):
                 chunksName = [node.name for node in chunksInConflict]
                 # Warning: Syntax and terms are parsed on QML side to recognize the error
                 # Syntax : [Context] ErrorType: ErrorMessage
-                msg = '[COMPUTATION] Already Submitted:\n' \
-                      'WARNING - Some nodes are already submitted with status: {}\nNodes: {}'.format(
-                      ', '.join(chunksStatus),
-                      ', '.join(chunksName)
-                      )
+                msg = '[COMPUTATION] Already Submitted:\nWARNING - Some nodes are already submitted with status: ' \
+                      '{}\nNodes: {}'.format(', '.join(chunksStatus), ', '.join(chunksName))
 
                 if forceStatus:
                     logging.warning(msg)
@@ -320,8 +322,9 @@ class TaskManager(BaseObject):
                     raise RuntimeError("[{}] Duplicates Issue:\n"
                                        "Cannot compute because there are some duplicate nodes to process:\n\n"
                                        "First match: '{}' and '{}'\n\n"
-                                       "There can be other duplicate nodes in the list. Please, check the graph and try again.".format(
-                                       context, node.nameToLabel(node.name), node.nameToLabel(duplicate.name)))
+                                       "There can be other duplicate nodes in the list. "
+                                       "Please, check the graph and try again.".
+                                       format(context, node.nameToLabel(node.name), node.nameToLabel(duplicate.name)))
 
     def checkNodesDependencies(self, graph, toNodes, context):
         """
@@ -333,21 +336,24 @@ class TaskManager(BaseObject):
         """
         ready = []
         computed = []
+        inputNodes = []
         for node in toNodes:
-            if context == "COMPUTATION":
-                if graph.canCompute(node) and graph.canSubmitOrCompute(node) % 2 == 1:
+            if not node.isComputable:
+                inputNodes.append(node)
+            elif context == "COMPUTATION":
+                if graph.canComputeTopologically(node) and graph.canSubmitOrCompute(node) % 2 == 1:
                     ready.append(node)
                 elif node.isComputed:
                     computed.append(node)
             elif context == "SUBMITTING":
-                if graph.canCompute(node) and graph.canSubmitOrCompute(node) > 1:
+                if graph.canComputeTopologically(node) and graph.canSubmitOrCompute(node) > 1:
                     ready.append(node)
                 elif node.isComputed:
                     computed.append(node)
             else:
                 raise ValueError("Argument 'context' must be: 'COMPUTATION' or 'SUBMITTING'")
 
-        if len(ready) + len(computed) != len(toNodes):
+        if len(ready) + len(computed) + len(inputNodes) != len(toNodes):
             toNodes.clear()
             toNodes.extend(ready)
             return False
@@ -358,7 +364,8 @@ class TaskManager(BaseObject):
         # Warning: Syntax and terms are parsed on QML side to recognize the error
         # Syntax : [Context] ErrorType: ErrorMessage
         raise RuntimeWarning("[{}] Unresolved dependencies:\n"
-                             "Some nodes cannot be computed in LOCAL/submitted in EXTERN because of unresolved dependencies.\n\n"
+                             "Some nodes cannot be computed in LOCAL/submitted in EXTERN because of "
+                             "unresolved dependencies.\n\n"
                              "Nodes which are ready will be processed.".format(context))
 
     def raiseImpossibleProcess(self, context):

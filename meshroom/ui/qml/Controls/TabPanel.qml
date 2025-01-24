@@ -1,6 +1,6 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 Page {
     id: root
@@ -41,22 +41,22 @@ Page {
                         text: modelData
                         y: mainTabBar.padding
                         padding: 4
-                        width: 150
+                        width: text.length * font.pointSize
                         background: Rectangle {
                             color: index === mainTabBar.currentIndex ? root.palette.window : Qt.darker(root.palette.window, 1.30)
                         }
 
                         Rectangle {
-                            property bool commonBorder : false
+                            property bool commonBorder: false
 
-                            property int lBorderwidth : index === mainTabBar.currentIndex ? 2 : 1
-                            property int rBorderwidth : index === mainTabBar.currentIndex ? 2 : 1
-                            property int tBorderwidth : index === mainTabBar.currentIndex ? 2 : 1
-                            property int bBorderwidth : 0
+                            property int lBorderwidth: index === mainTabBar.currentIndex ? 2 : 1
+                            property int rBorderwidth: index === mainTabBar.currentIndex ? 2 : 1
+                            property int tBorderwidth: index === mainTabBar.currentIndex ? 2 : 1
+                            property int bBorderwidth: 0
 
-                            property int commonBorderWidth : 1
+                            property int commonBorderWidth: 1
 
-                            z : -1
+                            z: -1
 
                             color: Qt.darker(root.palette.window, 1.50)
 
@@ -66,10 +66,10 @@ Page {
                                 top: parent.top
                                 bottom: parent.bottom
 
-                                topMargin    : commonBorder ? -commonBorderWidth : -tBorderwidth
-                                bottomMargin : commonBorder ? -commonBorderWidth : -bBorderwidth
-                                leftMargin   : commonBorder ? -commonBorderWidth : -lBorderwidth
-                                rightMargin  : commonBorder ? -commonBorderWidth : -rBorderwidth
+                                topMargin: commonBorder ? -commonBorderWidth : -tBorderwidth
+                                bottomMargin: commonBorder ? -commonBorderWidth : -bBorderwidth
+                                leftMargin: commonBorder ? -commonBorderWidth : -lBorderwidth
+                                rightMargin: commonBorder ? -commonBorderWidth : -rBorderwidth
                             }
                         }
                     }

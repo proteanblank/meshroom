@@ -11,16 +11,18 @@ parser.add_argument('meshroomFile', metavar='MESHROOMFILE.mg', type=str,
                     help='Filepath to a graph file.')
 parser.add_argument('--toNode', metavar='NODE_NAME', type=str,
                     help='Process the node with its dependencies.')
-
 parser.add_argument('--submitter',
                     type=str,
                     default='SimpleFarm',
                     help='Execute job with a specific submitter.')
-parser.add_argument("--submitLabel", 
-                    type=str, 
-                    default='{projectName} [Meshroom]',
+parser.add_argument("--submitLabel",
+                    type=str,
+                    default='[Meshroom] {projectName}',
                     help="Label of a node in the submitter")
 
 args = parser.parse_args()
 
-meshroom.core.graph.submit(args.save, args.submitter, toNode=toNodes, submitLabel=args.submitLabel)
+meshroom.core.initNodes()
+meshroom.core.initSubmitters()
+
+meshroom.core.graph.submit(args.meshroomFile, args.submitter, toNode=args.toNode, submitLabel=args.submitLabel)

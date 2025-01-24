@@ -1,5 +1,6 @@
-from PySide2 import QtCore, QtQml
-import shiboken2
+from PySide6 import QtCore, QtQml
+import shiboken6
+
 
 class QObjectListModel(QtCore.QAbstractListModel):
     """
@@ -43,7 +44,9 @@ class QObjectListModel(QtCore.QAbstractListModel):
         return self.size() > 0
 
     def __getitem__(self, index):
-        """ Enables the [] operator """
+        """ Enables the [] operator.
+        Only accepts index (integer).
+        """
         return self._objects[index]
 
     def data(self, index, role):
@@ -96,9 +99,17 @@ class QObjectListModel(QtCore.QAbstractListModel):
     @QtCore.Slot(str, result=QtCore.QObject)
     def get(self, key):
         """
-        Raises a KeyError if key is not in the map.
         :param key:
-        :return:
+        :return: the value or None if not found
+        """
+        return self._objectByKey.get(key)
+
+    @QtCore.Slot(str, result=QtCore.QObject)
+    def getr(self, key):
+        """
+        Get or raise an error if the key does not exists.
+        :param key:
+        :return: the value
         """
         return self._objectByKey[key]
 
@@ -272,9 +283,18 @@ class QObjectListModel(QtCore.QAbstractListModel):
 
         self._objectByKey[key] = item
 
+    @QtCore.Slot(int, result=QtCore.QModelIndex)
+    def index(self, row: int, column: int = 0, parent=QtCore.QModelIndex()):
+        """ Returns the model index for the given row, column and parent index. """
+        if parent.isValid() or column != 0:
+            return QtCore.QModelIndex()
+        if row < 0 or row >= self.size():
+            return QtCore.QModelIndex()
+        return self.createIndex(row, column, self._objects[row])
+
     def _dereferenceItem(self, item):
         # Ask for object deletion if parented to the model
-        if shiboken2.isValid(item) and item.parent() == self:
+        if shiboken6.isValid(item) and item.parent() == self:
             # delay deletion until the next event loop
             # This avoids warnings when the QML engine tries to evaluate (but should not)
             # an object that has already been deleted

@@ -1,17 +1,12 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
-import QtPositioning 5.8
-import QtLocation 5.9
-import QtCharts 2.13
-import Charts 1.0
-
-import Controls 1.0
-import Utils 1.0
+import QtCharts
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 import AliceVision 1.0 as AliceVision
-
+import Charts 1.0
+import Controls 1.0
+import Utils 1.0
 
 
 FloatingPane {
@@ -88,9 +83,8 @@ FloatingPane {
                 checkState: residualLegend.buttonGroup.checkState
                 onClicked: {
                     var _checked = checked;
-                    for(var i = 0; i < residualChart.count; ++i)
-                    {
-                        residualChart.series(i).visible = _checked;
+                    for (var i = 0; i < residualChart.count; ++i) {
+                        residualChart.series(i).visible = _checked
                     }
                 }
             }
@@ -141,8 +135,7 @@ FloatingPane {
             axisY: observationsLengthsvalueAxisY
             name: "Current"
         }
-
-        }
+    }
 
     Item {
         id: observationsLengthsBtnContainer
@@ -154,7 +147,6 @@ FloatingPane {
         anchors.leftMargin: observationsLengthsChart.width * 0.25
 
         RowLayout {
-
             ChartViewCheckBox {
                 id: allObservations
                 text: "ALL"
@@ -162,9 +154,8 @@ FloatingPane {
                 checkState: observationsLengthsLegend.buttonGroup.checkState
                 onClicked: {
                     var _checked = checked;
-                    for(var i = 0; i < observationsLengthsChart.count; ++i)
-                    {
-                        observationsLengthsChart.series(i).visible = _checked;
+                    for (var i = 0; i < observationsLengthsChart.count; ++i) {
+                        observationsLengthsChart.series(i).visible = _checked
                     }
                 }
             }
@@ -173,7 +164,6 @@ FloatingPane {
                 id: observationsLengthsLegend
                 chartView: observationsLengthsChart
             }
-
         }
     }
 
@@ -224,7 +214,6 @@ FloatingPane {
         anchors.leftMargin: observationsScaleChart.width * 0.15
 
         RowLayout {
-
             ChartViewCheckBox {
                 id: allObservationsScales
                 text: "ALL"
@@ -232,9 +221,8 @@ FloatingPane {
                 checkState: observationsScaleLegend.buttonGroup.checkState
                 onClicked: {
                     var _checked = checked;
-                    for(var i = 0; i < observationsScaleChart.count; ++i)
-                    {
-                        observationsScaleChart.series(i).visible = _checked;
+                    for (var i = 0; i < observationsScaleChart.count; ++i) {
+                        observationsScaleChart.series(i).visible = _checked
                     }
                 }
             }
@@ -252,12 +240,12 @@ FloatingPane {
         msfmData: (root.visible && root.msfmData && root.msfmData.status === AliceVision.MSfMData.Ready) ? root.msfmData : null
         viewId: root.viewId
         onViewStatsChanged: {
-            fillResidualFullSerie(residualFullLineSerie);
-            fillResidualViewSerie(residualViewLineSerie);
-            fillObservationsLengthsFullSerie(observationsLengthsFullLineSerie);
-            fillObservationsLengthsViewSerie(observationsLengthsViewLineSerie);
-            fillObservationsScaleFullSerie(observationsScaleFullLineSerie);
-            fillObservationsScaleViewSerie(observationsScaleViewLineSerie);
+            fillResidualFullSerie(residualFullLineSerie)
+            fillResidualViewSerie(residualViewLineSerie)
+            fillObservationsLengthsFullSerie(observationsLengthsFullLineSerie)
+            fillObservationsLengthsViewSerie(observationsLengthsViewLineSerie)
+            fillObservationsScaleFullSerie(observationsScaleFullLineSerie)
+            fillObservationsScaleViewSerie(observationsScaleViewLineSerie)
         }
     }
 }

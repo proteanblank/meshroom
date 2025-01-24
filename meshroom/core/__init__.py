@@ -1,11 +1,8 @@
-from __future__ import print_function
-
 import hashlib
 from contextlib import contextmanager
 import importlib
 import inspect
 import os
-import re
 import tempfile
 import uuid
 import logging
@@ -18,7 +15,7 @@ try:
     import encodings.ascii
     import encodings.idna
     import encodings.utf_8
-except:
+except Exception:
     pass
 
 from meshroom.core.submitter import BaseSubmitter
@@ -128,6 +125,8 @@ def validateNodeDesc(nodeDesc):
             errors.append(err)
 
     for param in nodeDesc.outputs:
+        if param.value is None:
+            continue
         err = param.checkValueTypes()
         if err:
             errors.append(err)
@@ -286,7 +285,7 @@ def registerNodeType(nodeType):
     """
     global nodesDesc
     if nodeType.__name__ in nodesDesc:
-        raise RuntimeError("Node Desc {} is already registered.".format(nodeType.__name__))
+        logging.error("Node Desc {} is already registered.".format(nodeType.__name__))
     nodesDesc[nodeType.__name__] = nodeType
 
 
@@ -314,7 +313,7 @@ def loadAllNodes(folder):
 def registerSubmitter(s):
     global submitters
     if s.name in submitters:
-        raise RuntimeError("Submitter {} is already registered.".format(s.name))
+        logging.error("Submitter {} is already registered.".format(s.name))
     submitters[s.name] = s
 
 
@@ -328,30 +327,33 @@ def loadPipelineTemplates(folder):
         if file.endswith(".mg") and file not in pipelineTemplates:
             pipelineTemplates[os.path.splitext(file)[0]] = os.path.join(folder, file)
 
-meshroomFolder = os.path.dirname(os.path.dirname(__file__))
 
-additionalNodesPath = os.environ.get("MESHROOM_NODES_PATH", "").split(os.pathsep)
-# filter empty strings
-additionalNodesPath = [i for i in additionalNodesPath if i]
+def initNodes():
+    meshroomFolder = os.path.dirname(os.path.dirname(__file__))
+    additionalNodesPath = os.environ.get("MESHROOM_NODES_PATH", "").split(os.pathsep)
+    # filter empty strings
+    additionalNodesPath = [i for i in additionalNodesPath if i]
+    nodesFolders = [os.path.join(meshroomFolder, 'nodes')] + additionalNodesPath
+    for f in nodesFolders:
+        loadAllNodes(folder=f)
 
-# Load plugins:
-# - Nodes
-nodesFolders = [os.path.join(meshroomFolder, 'nodes')] + additionalNodesPath
 
-for f in nodesFolders:
-    loadAllNodes(folder=f)
+def initSubmitters():
+    meshroomFolder = os.path.dirname(os.path.dirname(__file__))
+    subs = loadSubmitters(os.environ.get("MESHROOM_SUBMITTERS_PATH", meshroomFolder), 'submitters')
+    for sub in subs:
+        registerSubmitter(sub())
 
-# - Submitters
-subs = loadSubmitters(os.environ.get("MESHROOM_SUBMITTERS_PATH", meshroomFolder), 'submitters')
 
-for sub in subs:
-    registerSubmitter(sub())
-
-# Load pipeline templates: check in the default folder and any folder the user might have
-# added to the environment variable
-additionalPipelinesPath = os.environ.get("MESHROOM_PIPELINE_TEMPLATES_PATH", "").split(os.pathsep)
-additionalPipelinesPath = [i for i in additionalPipelinesPath if i]
-pipelineTemplatesFolders = [os.path.join(meshroomFolder, 'pipelines')] + additionalPipelinesPath
-
-for f in pipelineTemplatesFolders:
-    loadPipelineTemplates(f)
+def initPipelines():
+    meshroomFolder = os.path.dirname(os.path.dirname(__file__))
+    # Load pipeline templates: check in the default folder and any folder the user might have
+    # added to the environment variable
+    additionalPipelinesPath = os.environ.get("MESHROOM_PIPELINE_TEMPLATES_PATH", "").split(os.pathsep)
+    additionalPipelinesPath = [i for i in additionalPipelinesPath if i]
+    pipelineTemplatesFolders = [os.path.join(meshroomFolder, 'pipelines')] + additionalPipelinesPath
+    for f in pipelineTemplatesFolders:
+        if os.path.isdir(f):
+            loadPipelineTemplates(f)
+        else:
+            logging.error("Pipeline templates folder '{}' does not exist.".format(f))

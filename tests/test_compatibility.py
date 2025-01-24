@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # coding:utf-8
 import tempfile
-
 import os
 
 import copy
@@ -9,23 +8,23 @@ import pytest
 
 import meshroom.core
 from meshroom.core import desc, registerNodeType, unregisterNodeType
-from meshroom.core.exception import NodeUpgradeError
+from meshroom.core.exception import GraphCompatibilityError, NodeUpgradeError
 from meshroom.core.graph import Graph, loadGraph
 from meshroom.core.node import CompatibilityNode, CompatibilityIssue, Node
 
 
 SampleGroupV1 = [
-    desc.IntParam(name="a", label="a", description="", value=0, uid=[0], range=None),
+    desc.IntParam(name="a", label="a", description="", value=0, range=None),
     desc.ListAttribute(
         name="b",
-        elementDesc=desc.FloatParam(name="p", label="", description="", value=0.0, uid=[0], range=None),
+        elementDesc=desc.FloatParam(name="p", label="", description="", value=0.0, range=None),
         label="b",
         description="",
     )
 ]
 
 SampleGroupV2 = [
-    desc.IntParam(name="a", label="a", description="", value=0, uid=[0], range=None),
+    desc.IntParam(name="a", label="a", description="", value=0, range=None),
     desc.ListAttribute(
         name="b",
         elementDesc=desc.GroupAttribute(name="p", label="", description="", groupDesc=SampleGroupV1),
@@ -34,10 +33,10 @@ SampleGroupV2 = [
     )
 ]
 
-#SampleGroupV3 is SampleGroupV2 with one more int parameter
+# SampleGroupV3 is SampleGroupV2 with one more int parameter
 SampleGroupV3 = [
-    desc.IntParam(name="a", label="a", description="", value=0, uid=[0], range=None),
-    desc.IntParam(name="notInSampleGroupV2", label="notInSampleGroupV2", description="", value=0, uid=[0], range=None),
+    desc.IntParam(name="a", label="a", description="", value=0, range=None),
+    desc.IntParam(name="notInSampleGroupV2", label="notInSampleGroupV2", description="", value=0, range=None),
     desc.ListAttribute(
         name="b",
         elementDesc=desc.GroupAttribute(name="p", label="", description="", groupDesc=SampleGroupV1),
@@ -50,11 +49,11 @@ SampleGroupV3 = [
 class SampleNodeV1(desc.Node):
     """ Version 1 Sample Node """
     inputs = [
-        desc.File(name='input', label='Input', description='', value='', uid=[0],),
-        desc.StringParam(name='paramA', label='ParamA', description='', value='', uid=[])  # No impact on UID
+        desc.File(name='input', label='Input', description='', value='',),
+        desc.StringParam(name='paramA', label='ParamA', description='', value='', invalidate=False)  # No impact on UID
     ]
     outputs = [
-        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder, uid=[])
+        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder)
     ]
 
 
@@ -63,12 +62,13 @@ class SampleNodeV2(desc.Node):
         * 'input' has been renamed to 'in'
     """
     inputs = [
-        desc.File(name='in', label='Input', description='', value='', uid=[0],),
-        desc.StringParam(name='paramA', label='ParamA', description='', value='', uid=[]),  # No impact on UID
+        desc.File(name='in', label='Input', description='', value='',),
+        desc.StringParam(name='paramA', label='ParamA', description='', value='', invalidate=False),  # No impact on UID
     ]
     outputs = [
-        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder, uid=[])
+        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder)
     ]
+
 
 class SampleNodeV3(desc.Node):
     """
@@ -76,11 +76,12 @@ class SampleNodeV3(desc.Node):
         * 'paramA' has been removed'
     """
     inputs = [
-        desc.File(name='in', label='Input', description='', value='', uid=[0], ),
+        desc.File(name='in', label='Input', description='', value='',),
     ]
     outputs = [
-        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder, uid=[])
+        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder)
     ]
+
 
 class SampleNodeV4(desc.Node):
     """
@@ -88,14 +89,14 @@ class SampleNodeV4(desc.Node):
         * 'paramA' has been added
     """
     inputs = [
-        desc.File(name='in', label='Input', description='', value='', uid=[0], ),
+        desc.File(name='in', label='Input', description='', value='',),
         desc.ListAttribute(name='paramA', label='ParamA',
                            elementDesc=desc.GroupAttribute(
                                groupDesc=SampleGroupV1, name='gA', label='gA', description=''),
                            description='')
     ]
     outputs = [
-        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder, uid=[])
+        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder)
     ]
 
 
@@ -105,15 +106,16 @@ class SampleNodeV5(desc.Node):
         * 'paramA' elementDesc has changed from SampleGroupV1 to SampleGroupV2
     """
     inputs = [
-        desc.File(name='in', label='Input', description='', value='', uid=[0]),
+        desc.File(name='in', label='Input', description='', value=''),
         desc.ListAttribute(name='paramA', label='ParamA',
                            elementDesc=desc.GroupAttribute(
                                groupDesc=SampleGroupV2, name='gA', label='gA', description=''),
                            description='')
     ]
     outputs = [
-        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder, uid=[])
+        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder)
     ]
+
 
 class SampleNodeV6(desc.Node):
     """
@@ -121,15 +123,38 @@ class SampleNodeV6(desc.Node):
         * 'paramA' elementDesc has changed from SampleGroupV2 to SampleGroupV3
     """
     inputs = [
-        desc.File(name='in', label='Input', description='', value='', uid=[0]),
+        desc.File(name='in', label='Input', description='', value=''),
         desc.ListAttribute(name='paramA', label='ParamA',
                            elementDesc=desc.GroupAttribute(
                                groupDesc=SampleGroupV3, name='gA', label='gA', description=''),
                            description='')
     ]
     outputs = [
-        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder, uid=[])
+        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder)
     ]
+
+
+class SampleInputNodeV1(desc.InputNode):
+    """ Version 1 Sample Input Node """
+    inputs = [
+        desc.StringParam(name='path', label='path', description='', value='', invalidate=False)  # No impact on UID
+    ]
+    outputs = [
+        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder)
+    ]
+
+
+class SampleInputNodeV2(desc.InputNode):
+    """ Changes from V1:
+        * 'path' has been renamed to 'in'
+    """
+    inputs = [
+        desc.StringParam(name='in', label='path', description='', value='', invalidate=False)  # No impact on UID
+    ]
+    outputs = [
+        desc.File(name='output', label='Output', description='', value=desc.Node.internalFolder)
+    ]
+
 
 def test_unknown_node_type():
     """
@@ -217,6 +242,7 @@ def test_description_conflict():
         if isinstance(srcNode.nodeDesc, SampleNodeV1):
             # V1 => V2: 'input' has been renamed to 'in'
             assert len(compatNode.attributes) == 3
+            assert list(compatNode.attributes.keys()) == ["input", "paramA", "output"]
             assert hasattr(compatNode, "input")
             assert not hasattr(compatNode, "in")
 
@@ -224,6 +250,7 @@ def test_description_conflict():
             upgradedNode = g.upgradeNode(nodeName)[0]
             assert isinstance(upgradedNode, Node) and isinstance(upgradedNode.nodeDesc, SampleNodeV2)
 
+            assert list(upgradedNode.attributes.keys()) == ["in", "paramA", "output"]
             assert not hasattr(upgradedNode, "input")
             assert hasattr(upgradedNode, "in")
             # check uid has changed (not the same set of attributes)
@@ -285,37 +312,50 @@ def test_description_conflict():
 def test_upgradeAllNodes():
     registerNodeType(SampleNodeV1)
     registerNodeType(SampleNodeV2)
+    registerNodeType(SampleInputNodeV1)
+    registerNodeType(SampleInputNodeV2)
 
     g = Graph('')
     n1 = g.addNewNode("SampleNodeV1")
     n2 = g.addNewNode("SampleNodeV2")
+    n3 = g.addNewNode("SampleInputNodeV1")
+    n4 = g.addNewNode("SampleInputNodeV2")
     n1Name = n1.name
     n2Name = n2.name
+    n3Name = n3.name
+    n4Name = n4.name
     graphFile = os.path.join(tempfile.mkdtemp(), "test_description_conflict.mg")
     g.save(graphFile)
 
-    # make SampleNodeV2 an unknown type
+    # make SampleNodeV2 and SampleInputNodeV2 an unknown type
     unregisterNodeType(SampleNodeV2)
-    # replace SampleNodeV1 by SampleNodeV2
+    unregisterNodeType(SampleInputNodeV2)
+    # replace SampleNodeV1 by SampleNodeV2 and SampleInputNodeV1 by SampleInputNodeV2
     meshroom.core.nodesDesc[SampleNodeV1.__name__] = SampleNodeV2
+    meshroom.core.nodesDesc[SampleInputNodeV1.__name__] = SampleInputNodeV2
 
     # reload file
     g = loadGraph(graphFile)
     os.remove(graphFile)
 
     # both nodes are CompatibilityNodes
-    assert len(g.compatibilityNodes) == 2
+    assert len(g.compatibilityNodes) == 4
     assert g.node(n1Name).canUpgrade      # description conflict
     assert not g.node(n2Name).canUpgrade  # unknown type
+    assert g.node(n3Name).canUpgrade      # description conflict
+    assert not g.node(n4Name).canUpgrade  # unknown type
 
     # upgrade all upgradable nodes
     g.upgradeAllNodes()
 
-    # only the node with an unknown type has not been upgraded
-    assert len(g.compatibilityNodes) == 1
+    # only the nodes with an unknown type have not been upgraded
+    assert len(g.compatibilityNodes) == 2
     assert n2Name in g.compatibilityNodes.keys()
+    assert n4Name in g.compatibilityNodes.keys()
 
     unregisterNodeType(SampleNodeV1)
+    unregisterNodeType(SampleInputNodeV1)
+
 
 def test_conformUpgrade():
     registerNodeType(SampleNodeV5)
@@ -357,7 +397,22 @@ def test_conformUpgrade():
     unregisterNodeType(SampleNodeV6)
 
 
+class TestGraphLoadingWithStrictCompatibility:
 
+    def test_failsOnNodeDescriptionCompatibilityIssue(self, graphSavedOnDisk):
+        registerNodeType(SampleNodeV1)
+        registerNodeType(SampleNodeV2)
 
+        graph: Graph = graphSavedOnDisk
+        graph.addNewNode(SampleNodeV1.__name__)
+        graph.save()
 
+        # Replace saved node description by V2
+        meshroom.core.nodesDesc[SampleNodeV1.__name__] = SampleNodeV2
+
+        with pytest.raises(GraphCompatibilityError):
+            loadGraph(graph.filepath, strictCompatibility=True)
+
+        unregisterNodeType(SampleNodeV1)
+        unregisterNodeType(SampleNodeV2)
 

@@ -1,12 +1,13 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
-import Utils 1.0
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
+import Utils 1.0
 
 /**
  * ImageDelegate for a Viewpoint object.
  */
+
 Item {
     id: root
 
@@ -20,10 +21,11 @@ Item {
 
     signal pressed(var mouse)
     signal removeRequest()
+    signal removeAllImagesRequest()
 
     default property alias children: imageMA.children
 
-    // retrieve viewpoints inner data
+    // Retrieve viewpoints inner data
     QtObject {
         id: _viewpoint
         property url source: viewpoint ? Filepath.stringToUrl(viewpoint.get("path").value) : ''
@@ -32,13 +34,13 @@ Item {
         property var metadata: metadataStr ? JSON.parse(viewpoint.get("metadata").value) : {}
     }
 
-    // update thumbnail location
-    // can be called from the GridView when a new thumbnail has been written on disk
+    // Update thumbnail location
+    // Can be called from the GridView when a new thumbnail has been written on disk
     function updateThumbnail() {
-        thumbnail.source = ThumbnailCache.thumbnail(root.source, root.cellID);
+        thumbnail.source = ThumbnailCache.thumbnail(root.source, root.cellID)
     }
     onSourceChanged: {
-        updateThumbnail();
+        updateThumbnail()
     }
 
     // Send a new request after 5 seconds if thumbnail is not loaded
@@ -48,7 +50,7 @@ Item {
         running: true
         onTriggered: {
             if (thumbnail.status == Image.Null) {
-                updateThumbnail();
+                updateThumbnail()
             }
         }
     }
@@ -59,7 +61,7 @@ Item {
         anchors.margins: 6
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
-        onPressed: {
+        onPressed: function(mouse) {
             if (mouse.button == Qt.RightButton)
                 imageMenu.popup()
             root.pressed(mouse)
@@ -79,10 +81,15 @@ Item {
                 onClicked: removeRequest()
             }
             MenuItem {
+                text: "Remove All Images"
+                enabled: !root.readOnly
+                onClicked: removeAllImagesRequest()
+            }
+            MenuItem {
                 text: "Define As Center Image"
                 property var activeNode: _reconstruction ? _reconstruction.activeNodes.get("SfMTransform").node : null
                 enabled: !root.readOnly && _viewpoint.viewId != -1 && _reconstruction && activeNode
-                onClicked: activeNode.attribute("transformation").value = _viewpoint.viewId.toString()
+                onClicked: _reconstruction.setAttribute(activeNode.attribute("transformation"), _viewpoint.viewId.toString())
             }
             Menu {
                 id: sfmSetPairMenu
@@ -92,12 +99,12 @@ Item {
 
                 MenuItem {
                     text: "A"
-                    onClicked: sfmSetPairMenu.activeNode.attribute("initialPairA").value = _viewpoint.viewId.toString()
+                    onClicked: _reconstruction.setAttribute(sfmSetPairMenu.activeNode.attribute("initialPairA"), _viewpoint.viewId.toString())
                 }
 
                 MenuItem {
                     text: "B"
-                    onClicked: sfmSetPairMenu.activeNode.attribute("initialPairB").value = _viewpoint.viewId.toString()
+                    onClicked: _reconstruction.setAttribute(sfmSetPairMenu.activeNode.attribute("initialPairB"), _viewpoint.viewId.toString())
                 }
             }
         }
@@ -129,6 +136,7 @@ Item {
                     running: thumbnail.status != Image.Ready
                 }
             }
+
             // Image basename
             Label {
                 id: imageLabel

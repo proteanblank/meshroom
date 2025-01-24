@@ -1,17 +1,18 @@
-import QtQuick 2.14
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
-import QtQml.Models 2.2
-import Qt.labs.qmlmodels 1.0
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import QtQml.Models
+import Qt.labs.qmlmodels
 
 import Controls 1.0
+import MaterialIcons 2.2
 import Utils 1.0
 
 /**
  * ImageGallery displays as a grid of Images a model containing Viewpoints objects.
  * It manages a model of multiple CameraInit nodes as individual groups.
  */
+
 Panel {
     id: root
 
@@ -28,11 +29,24 @@ Panel {
     property int defaultCellSize: 160
     property bool readOnly: false
 
+    property var filesByType: ({})
+    property int nbMeshroomScenes: 0
+    property int nbDraggedFiles: 0
+
     signal removeImageRequest(var attribute)
+    signal allViewpointsCleared()
     signal filesDropped(var drop, var augmentSfm)
 
     title: "Image Gallery"
     implicitWidth: (root.defaultCellSize + 2) * 2
+
+    Connections {
+        target: _reconstruction
+
+        function onCameraInitChanged() {
+            nodesCB.currentIndex = root.cameraInitIndex
+        }
+    }
 
     QtObject {
         id: m
@@ -51,7 +65,7 @@ Panel {
     }
 
     property variant parsedIntrinsic
-    property int numberOfIntrinsics : m.intrinsics ? m.intrinsics.count : 0
+    property int numberOfIntrinsics: m.intrinsics ? m.intrinsics.count : 0
     onNumberOfIntrinsicsChanged: {
         parseIntr()
     }
@@ -61,6 +75,11 @@ Panel {
     }
 
     function populate_model() {
+        if (!intrinsicModel.ready) {
+            // If the TableModel is not done being instantiated, do nothing
+            return
+        }
+
         intrinsicModel.clear()
         for (var intr in parsedIntrinsic) {
             intrinsicModel.appendRow(parsedIntrinsic[intr])
@@ -69,35 +88,33 @@ Panel {
 
     function parseIntr() {
         parsedIntrinsic = []
-        if(!m.intrinsics) {
+        if (!m.intrinsics) {
             return
         }
 
-        //Loop through all intrinsics
-        for(var i = 0; i < m.intrinsics.count; ++i) {
+        // Loop through all intrinsics
+        for (var i = 0; i < m.intrinsics.count; ++i) {
             var intrinsic = {}
 
-            //Loop through all attributes
-            for(var j=0; j < m.intrinsics.at(i).value.count; ++j) {
+            // Loop through all attributes
+            for (var j = 0; j < m.intrinsics.at(i).value.count; ++j) {
                 var currentAttribute = m.intrinsics.at(i).value.at(j)
-                if(currentAttribute.type === "GroupAttribute") {
-                    for(var k=0; k < currentAttribute.value.count; ++k) {
+                if (currentAttribute.type === "GroupAttribute") {
+                    for (var k = 0; k < currentAttribute.value.count; ++k) {
                         intrinsic[currentAttribute.name + "." + currentAttribute.value.at(k).name] = currentAttribute.value.at(k)
                     }
-                }
-                else if(currentAttribute.type === "ListAttribute") {
-                    // not needed for now
-                }
-                else {
+                } else if (currentAttribute.type === "ListAttribute") {
+                    // Not needed for now
+                } else {
                     intrinsic[currentAttribute.name] = currentAttribute
                 }
             }
             // Table Model needs to contain an entry for each column.
             // In case of old file formats, some intrinsic keys that we display may not exist in the model.
             // So, here we create an empty entry to enforce that the key exists in the model.
-            for(var n = 0; n < intrinsicModel.columnNames.length; ++n) {
+            for (var n = 0; n < intrinsicModel.columnNames.length; ++n) {
                 var name = intrinsicModel.columnNames[n]
-                if(!(name in intrinsic)) {
+                if (!(name in intrinsic)) {
                     intrinsic[name] = {}
                 }
             }
@@ -109,7 +126,9 @@ Panel {
     headerBar: RowLayout {
         SearchBar {
             id: searchBar
-            width: 150
+            toggle: true  // Enable toggling the actual text field by the search button
+            Layout.minimumWidth: searchBar.width
+            maxWidth: 150
         }
 
         MaterialToolButton {
@@ -161,10 +180,8 @@ Panel {
 
             visible: !intrinsicsFilterButton.checked
 
-            ScrollBar.vertical: ScrollBar {
-                minimumSize: 0.05
+            ScrollBar.vertical: MScrollBar {
                 active : !intrinsicsFilterButton.checked
-                visible: !intrinsicsFilterButton.checked
             }
 
             focus: true
@@ -178,7 +195,7 @@ Panel {
             // Update grid current item when selected view changes
             Connections {
                 target: _reconstruction
-                onSelectedViewIdChanged: {
+                function onSelectedViewIdChanged() {
                     if (_reconstruction.selectedViewId > -1) {
                         grid.updateCurrentIndexFromSelectionViewId()
                     }
@@ -208,16 +225,16 @@ Panel {
             Connections {
                 target: ThumbnailCache
                 function onThumbnailCreated(imgSource, callerID) {
-                    let item = grid.itemAtIndex(callerID);  // item is an ImageDelegate
+                    let item = grid.itemAtIndex(callerID);  // "item" is an ImageDelegate
                     if (item && item.source === imgSource) {
-                        item.updateThumbnail();
-                        return;
+                        item.updateThumbnail()
+                        return
                     }
-                    // fallback in case the ImageDelegate cellID changed
+                    // Fallback in case the ImageDelegate cellID changed
                     for (let idx = 0; idx < grid.count; idx++) {
-                        item = grid.itemAtIndex(idx);
+                        item = grid.itemAtIndex(idx)
                         if (item && item.source === imgSource) {
-                            item.updateThumbnail();
+                            item.updateThumbnail()
                         }
                     }
                 }
@@ -241,20 +258,20 @@ Panel {
                 ]
                 property var reconstructionFilter: undefined
 
-                // override modelData to return basename of viewpoint's path for sorting
+                // Override modelData to return basename of viewpoint's path for sorting
                 function modelData(item, roleName_) {
-                    var roleNameAndCmd = roleName_.split(".");
-                    var roleName = roleName_;
-                    var cmd = "";
-                    if(roleNameAndCmd.length >= 2) {
-                        roleName = roleNameAndCmd[0];
-                        cmd = roleNameAndCmd[1];
+                    var roleNameAndCmd = roleName_.split(".")
+                    var roleName = roleName_
+                    var cmd = ""
+                    if (roleNameAndCmd.length >= 2) {
+                        roleName = roleNameAndCmd[0]
+                        cmd = roleNameAndCmd[1]
                     }
-                    if(cmd == "isReconstructed")
+                    if (cmd == "isReconstructed")
                         return _reconstruction.isReconstructed(item.model.object);
 
                     var value = item.model.object.childAttribute(roleName).value;
-                    if(cmd == "basename")
+                    if (cmd == "basename")
                         return Filepath.basename(value);
                     if (cmd == "asString") 
                         return value.toString();
@@ -280,12 +297,32 @@ Panel {
                     }
 
                     function sendRemoveRequest() {
-                        if(!readOnly)
-                            removeImageRequest(object)
+                        if (readOnly)
+                            return
+
+                        removeImageRequest(object)
+                        
+                        // If the last image has been removed, make sure the viewpoints and intrinsics are reset
+                        if (m.viewpoints.count === 0)
+                            allViewpointsCleared()
+                    }
+
+                    function removeAllImages() {
+                        _reconstruction.removeAllImages()
+                        _reconstruction.selectedViewId = "-1"
                     }
 
                     onRemoveRequest: sendRemoveRequest()
-                    Keys.onDeletePressed: sendRemoveRequest()
+                    Keys.onPressed: function(event) {
+                        if (event.key === Qt.Key_Delete && event.modifiers === Qt.ShiftModifier) {
+                            removeAllImages()
+                        } else if (event.key === Qt.Key_Delete) {
+                            sendRemoveRequest()
+                        }
+                    }
+                    onRemoveAllImagesRequest: {
+                        removeAllImages()
+                    }
 
                     RowLayout {
                         anchors.top: parent.top
@@ -346,44 +383,29 @@ Panel {
 
             // Keyboard shortcut to change current image group
             Keys.priority: Keys.BeforeItem
-            Keys.onPressed: {
-                if(event.modifiers & Qt.AltModifier)
-                {
-                    if(event.key === Qt.Key_Right)
-                    {
+            Keys.onPressed: function(event) {
+                if (event.modifiers & Qt.AltModifier) {
+                    if (event.key === Qt.Key_Right) {
                         _reconstruction.cameraInitIndex = Math.min(root.cameraInits.count - 1, root.cameraInitIndex + 1)
                         event.accepted = true
-                    }
-                    else if(event.key === Qt.Key_Left)
-                    {
+                    } else if (event.key === Qt.Key_Left) {
                         _reconstruction.cameraInitIndex = Math.max(0, root.cameraInitIndex - 1)
                         event.accepted = true
                     }
-                }
-                else
-                {
-                    if(event.key === Qt.Key_Right)
-                    {
+                } else {
+                    if (event.key === Qt.Key_Right) {
                         grid.moveCurrentIndexRight()
                         event.accepted = true
-                    }
-                    else if(event.key === Qt.Key_Left)
-                    {
+                    } else if (event.key === Qt.Key_Left) {
                         grid.moveCurrentIndexLeft()
                         event.accepted = true
-                    }
-                    else if(event.key === Qt.Key_Up)
-                    {
+                    } else if (event.key === Qt.Key_Up) {
                         grid.moveCurrentIndexUp()
                         event.accepted = true
-                    }
-                    else if(event.key === Qt.Key_Down)
-                    {
+                    } else if (event.key === Qt.Key_Down) {
                         grid.moveCurrentIndexDown()
                         event.accepted = true
-                    }
-                    else if (event.key === Qt.Key_Tab)
-                    {
+                    } else if (event.key === Qt.Key_Tab) {
                         searchBar.forceActiveFocus()
                         event.accepted = true
                     }
@@ -428,10 +450,18 @@ Panel {
                 anchors.fill: parent
                 enabled: !m.readOnly && !intrinsicsFilterButton.checked
                 keys: ["text/uri-list"]
-                // TODO: onEntered: call specific method to filter files based on extension
-                onDropped: {
+                onEntered: function(drag) {
+                    nbDraggedFiles = drag.urls.length
+                    filesByType = _reconstruction.getFilesByTypeFromDrop(drag.urls)
+                    nbMeshroomScenes = filesByType["meshroomScenes"].length
+                }
+                onDropped: function(drop) {
                     var augmentSfm = augmentArea.hovered
-                    root.filesDropped(drop, augmentSfm)
+                    if (nbMeshroomScenes == nbDraggedFiles || nbMeshroomScenes == 0) {
+                        root.filesDropped(filesByType, augmentSfm)
+                    } else {
+                        errorDialog.open()
+                    }
                 }
 
                 // Background opacifier
@@ -453,7 +483,19 @@ Panel {
                         Layout.fillHeight: true
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
-                        text: "Add Images"
+                        text: {
+                            if (nbMeshroomScenes != nbDraggedFiles && nbMeshroomScenes != 0) {
+                                return "Cannot Add Projects And Images Together"
+                            }
+
+                            if (nbMeshroomScenes == 1 && nbMeshroomScenes == nbDraggedFiles) {
+                                return "Load Project"
+                            } else if (nbMeshroomScenes == nbDraggedFiles) {
+                                return "Only One Project"
+                            } else {
+                                return "Add Images"
+                            }
+                        }
                         font.bold: true
                         background: Rectangle {
                             color: parent.hovered ? parent.palette.highlight : parent.palette.window
@@ -473,7 +515,17 @@ Panel {
                         text: "Augment Reconstruction"
                         font.bold: true
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                        visible: m.viewpoints ? m.viewpoints.count > 0 : false
+                        visible: {
+                            if (nbMeshroomScenes > 0) {
+                                return false
+                            }
+
+                            if (m.viewpoints) {
+                                return m.viewpoints.count > 0
+                            } else {
+                                return false
+                            }
+                        }
                         background: Rectangle {
                             color: parent.hovered ? palette.highlight : palette.window
                             opacity: 0.8
@@ -485,8 +537,8 @@ Panel {
 
             MouseArea {
                 anchors.fill: parent
-                onPressed: {
-                    if(mouse.button == Qt.LeftButton)
+                onPressed: function(mouse) {
+                    if (mouse.button == Qt.LeftButton)
                         grid.forceActiveFocus()
                     mouse.accepted = false
                 }
@@ -505,8 +557,10 @@ Panel {
                 anchors.fill: parent
                 boundsMovement : Flickable.StopAtBounds
 
-                //Provide width for column
-                //Note no size provided for the last column (bool comp) so it uses its automated size
+                palette: root.palette
+
+                // Provide width for column
+                // Note no size provided for the last column (bool comp) so it uses its automated size
                 columnWidthProvider: function (column) { return intrinsicModel.columnWidths[column] }
 
                 model: intrinsicModel
@@ -516,12 +570,14 @@ Panel {
                     readOnly: m.currentCameraInit ? m.currentCameraInit.locked : false
                 }
 
-                ScrollBar.horizontal: ScrollBar { id: sb }
-                ScrollBar.vertical : ScrollBar { id: sbv }
+                ScrollBar.horizontal: MScrollBar { id: sb }
+                ScrollBar.vertical : MScrollBar { id: sbv }
             }
 
             TableModel {
                 id : intrinsicModel
+                property bool ready: false
+
                 // Hardcoded default width per column
                 property var columnWidths: [105, 75, 75, 75, 60, 60, 60, 60, 200, 60, 60, 60]
                 property var columnNames: [
@@ -552,6 +608,13 @@ Panel {
                 TableModelColumn { display: function(modelIndex){return parsedIntrinsic[modelIndex.row][intrinsicModel.columnNames[10]]} }
                 TableModelColumn { display: function(modelIndex){return parsedIntrinsic[modelIndex.row][intrinsicModel.columnNames[11]]} }
                 //https://doc.qt.io/qt-5/qml-qt-labs-qmlmodels-tablemodel.html#appendRow-method
+
+                Component.onCompleted: {
+                    ready = true
+                    // Triggers "populate_model" in case the intrinsics have been filled while the model was
+                    // being instantiated
+                    root.populate_model()
+                }
             }
 
             //CODE FOR HEADERS
@@ -572,13 +635,22 @@ Panel {
 
             ToolButton {
                 text: MaterialIcons.navigate_before
+                property string previousGroupName: {
+                    if (root.cameraInits && root.cameraInitIndex - 1 >= 0) {
+                        return root.cameraInits.at(root.cameraInitIndex - 1).label
+                    }
+                    return ""
+                }
                 font.family: MaterialIcons.fontFamily
-                ToolTip.text: "Previous Group (Alt+Left)"
+                ToolTip.text: "Previous Group (Alt+Left): " + previousGroupName
                 ToolTip.visible: hovered
                 enabled: nodesCB.currentIndex > 0
                 onClicked: nodesCB.decrementCurrentIndex()
             }
-            Label { id: groupLabel; text: "Group " }
+            Label {
+                id: groupLabel
+                text: "Group "
+            }
             ComboBox {
                 id: nodesCB
                 model: {
@@ -600,11 +672,29 @@ Panel {
             Label { text: "/ " + (root.cameraInits ? root.cameraInits.count : "Unknown") }
             ToolButton {
                 text: MaterialIcons.navigate_next
+                property string nextGroupName: {
+                    if (root.cameraInits && root.cameraInitIndex + 1 < root.cameraInits.count) {
+                        return root.cameraInits.at(root.cameraInitIndex + 1).label
+                    }
+                    return ""
+                }
                 font.family: MaterialIcons.fontFamily
-                ToolTip.text: "Next Group (Alt+Right)"
+                ToolTip.text: "Next Group (Alt+Right): " + nextGroupName
                 ToolTip.visible: hovered
                 enabled: root.cameraInits ? nodesCB.currentIndex < root.cameraInits.count - 1 : false
                 onClicked: nodesCB.incrementCurrentIndex()
+            }
+        }
+
+        RowLayout {
+            Layout.fillHeight: false
+            Layout.alignment: Qt.AlignHCenter
+            visible: root.cameraInits ? root.cameraInits.count > 1 : false
+
+            Label {
+                id: groupName
+                text: root.cameraInit ? "<b>" + root.cameraInit.label + "</b>" + (root.cameraInit.label !== root.cameraInit.defaultLabel ? " (" + root.cameraInit.defaultLabel + ")" : "") : ""
+                font.pointSize: 8
             }
         }
     }
@@ -667,8 +757,8 @@ Panel {
                 }
             }
             onEnabledChanged: {
-                if(!enabled) {
-                    if(checked)
+                if (!enabled) {
+                    if (checked)
                         inputImagesFilterButton.checked = true
                     checked = false
                 }
@@ -700,8 +790,8 @@ Panel {
                 }
             }
             onEnabledChanged: {
-                if(!enabled) {
-                    if(checked)
+                if (!enabled) {
+                    if (checked)
                         inputImagesFilterButton.checked = true
                     checked = false
                 }
@@ -731,8 +821,8 @@ Panel {
                 }
             }
             onEnabledChanged: {
-                if(!enabled) {
-                    if(checked)
+                if (!enabled) {
+                    if (checked)
                         inputImagesFilterButton.checked = true
                     checked = false
                 }
@@ -752,37 +842,36 @@ Panel {
             iconText: MaterialIcons.filter
             label: activeNode ? activeNode.attribute("nbBrackets").value : ""
             visible: activeNode
-            enabled: activeNode && activeNode.isComputed
+            enabled: activeNode && activeNode.isComputed && (m.viewpoints ? m.viewpoints.count > 0 : false)
             property string nodeID: activeNode ? (activeNode.label + activeNode.isComputed) : ""
             onNodeIDChanged: {
-                if(checked) {
-                    open();
+                if (checked) {
+                    open()
                 }
             }
             onEnabledChanged: {
-                // Reset the toggle to avoid getting stuck
-                // with the HDR node checked but disabled.
-                if(checked) {
-                    checked = false;
-                    close();
+                // Reset the toggle to avoid getting stuck with the HDR node checked but disabled
+                if (checked) {
+                    checked = false
+                    close()
                 }
             }
             checkable: true
             checked: false
             onClicked: {
-                if(checked) {
-                    open();
+                if (checked) {
+                    open()
                 } else {
-                    close();
+                    close()
                 }
             }
             function open() {
-                if(imageProcessing.checked)
-                    imageProcessing.checked = false;
-                _reconstruction.setupTempCameraInit(activeNode, "outSfMData");
+                if (imageProcessing.checked)
+                    imageProcessing.checked = false
+                _reconstruction.setupTempCameraInit(activeNode, "outSfMData")
             }
             function close() {
-                _reconstruction.clearTempCameraInit();
+                _reconstruction.clearTempCameraInit()
             }
         }
 
@@ -799,34 +888,33 @@ Panel {
             enabled: activeNode && activeNode.isComputed
             property string nodeID: activeNode ? (activeNode.label + activeNode.isComputed) : ""
             onNodeIDChanged: {
-                if(checked) {
-                    open();
+                if (checked) {
+                    open()
                 }
             }
             onEnabledChanged: {
-                // Reset the toggle to avoid getting stuck
-                // with the HDR node checked but disabled.
-                if(checked) {
-                    checked = false;
-                    close();
+                // Reset the toggle to avoid getting stuck with the HDR node checked but disabled
+                if (checked) {
+                    checked = false
+                    close()
                 }
             }
             checkable: true
             checked: false
             onClicked: {
-                if(checked) {
-                    open();
+                if (checked) {
+                    open()
                 } else {
-                    close();
+                    close()
                 }
             }
             function open() {
-                if(displayHDR.checked)
-                    displayHDR.checked = false;
-                _reconstruction.setupTempCameraInit(activeNode, "outSfMData");
+                if (displayHDR.checked)
+                    displayHDR.checked = false
+                _reconstruction.setupTempCameraInit(activeNode, "outSfMData")
             }
             function close() {
-                _reconstruction.clearTempCameraInit();
+                _reconstruction.clearTempCameraInit()
             }
         }
 
@@ -853,5 +941,20 @@ Panel {
             to: 250
             implicitWidth: 70
         }
+    }
+
+    MessageDialog {
+        id: errorDialog
+
+        icon.text: MaterialIcons.error
+        icon.color: "#F44336"
+
+        title: "Different File Types"
+        text: "Do not mix .mg files and other types of files."
+        standardButtons: Dialog.Ok
+
+        parent: Overlay.overlay
+
+        onAccepted: close()
     }
 }

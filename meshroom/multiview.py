@@ -1,9 +1,4 @@
-# Multiview pipeline version
-__version__ = "2.2"
-
 import os
-
-from meshroom.core.graph import Graph, GraphModification
 
 # Supported image extensions
 imageExtensions = (
@@ -40,7 +35,10 @@ imageExtensions = (
     # ptex:
     '.ptex', '.ptx',
     # raw:
-    '.bay', '.bmq', '.cr2', '.cr3', '.crw', '.cs1', '.dc2', '.dcr', '.dng', '.erf', '.fff', '.k25', '.kdc', '.mdc', '.mos', '.mrw', '.nef', '.orf', '.pef', '.pxn', '.raf', '.raw', '.rdc', '.sr2', '.srf', '.x3f', '.arw', '.3fr', '.cine', '.ia', '.kc2', '.mef', '.nrw', '.qtk', '.rw2', '.sti', '.rwl', '.srw', '.drf', '.dsc', '.cap', '.iiq', '.rwz',
+    '.bay', '.bmq', '.cr2', '.cr3', '.crw', '.cs1', '.dc2', '.dcr', '.dng', '.erf', '.fff', '.k25', '.kdc', '.mdc',
+    '.mos', '.mrw', '.nef', '.orf', '.pef', '.pxn', '.raf', '.raw', '.rdc', '.sr2', '.srf', '.x3f', '.arw', '.3fr',
+    '.cine', '.ia', '.kc2', '.mef', '.nrw', '.qtk', '.rw2', '.sti', '.rwl', '.srw', '.drf', '.dsc', '.cap', '.iiq',
+    '.rwz',
     # rla:
     '.rla',
     # sgi:
@@ -69,6 +67,7 @@ videoExtensions = (
     '.mxf',
     )
 panoramaInfoExtensions = ('.xml')
+meshroomSceneExtensions = ('.mg')
 
 
 def hasExtension(filepath, extensions):
@@ -81,15 +80,17 @@ class FilesByType:
         self.images = []
         self.videos = []
         self.panoramaInfo = []
+        self.meshroomScenes = []
         self.other = []
 
     def __bool__(self):
-        return self.images or self.videos or self.panoramaInfo
+        return self.images or self.videos or self.panoramaInfo or self.meshroomScenes
 
     def extend(self, other):
         self.images.extend(other.images)
         self.videos.extend(other.videos)
         self.panoramaInfo.extend(other.panoramaInfo)
+        self.meshroomScenes.extend(other.meshroomScenes)
         self.other.extend(other.other)
 
     def addFile(self, file):
@@ -99,6 +100,8 @@ class FilesByType:
             self.videos.append(file)
         elif hasExtension(file, panoramaInfoExtensions):
             self.panoramaInfo.append(file)
+        elif hasExtension(file, meshroomSceneExtensions):
+            self.meshroomScenes.append(file)
         else:
             self.other.append(file)
 
@@ -125,6 +128,7 @@ def findFilesByTypeInFolder(folder, recursive=False):
 
     output = FilesByType()
     for currentFolder in inputFolders:
+        currentFolder = os.path.abspath(currentFolder)
         if os.path.isfile(currentFolder):
             output.addFile(currentFolder)
             continue

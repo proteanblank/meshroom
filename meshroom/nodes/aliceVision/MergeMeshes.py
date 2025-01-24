@@ -1,6 +1,7 @@
 __version__ = "1.0"
 
 from meshroom.core import desc
+from meshroom.core.utils import VERBOSE_LEVEL
 
 
 class MergeMeshes(desc.AVCommandLineNode):
@@ -19,59 +20,50 @@ Operation types used to merge two meshes:
 
     inputs = [
         desc.File(
-            name='inputFirstMesh',
-            label='Input First Mesh',
-            description='Input First Mesh (*.obj, *.mesh, *.meshb, *.ply, *.off, *.stl).',
-            value='',
-            uid=[0],
+            name="inputFirstMesh",
+            label="First Mesh",
+            description="Input first mesh (*.obj, *.mesh, *.meshb, *.ply, *.off, *.stl).",
+            value="",
         ),
         desc.File(
-            name='inputSecondMesh',
-            label='Input Second Mesh',
-            description='Input Second Mesh (*.obj, *.mesh, *.meshb, *.ply, *.off, *.stl).',
-            value='',
-            uid=[0],
+            name="inputSecondMesh",
+            label="Second Mesh",
+            description="Input second mesh (*.obj, *.mesh, *.meshb, *.ply, *.off, *.stl).",
+            value="",
         ),
         desc.ChoiceParam(
-            name='mergeOperation',
-            label='Merge Operation',
-            description='''Operation types used to merge two meshes.''',
-            value='boolean_union',
-            values=['boolean_union', 'boolean_intersection', 'boolean_difference'],
-            exclusive=True,
-            uid=[0],
+            name="mergeOperation",
+            label="Merge Operation",
+            description="Operation types used to merge two meshes.",
+            value="boolean_union",
+            values=["boolean_union", "boolean_intersection", "boolean_difference"],
         ),
         desc.BoolParam(
-            name='preProcess',
-            label='Pre-Process',
-            description='''Pre-process input meshes in order to avoid geometric errors in the merging process''',
+            name="preProcess",
+            label="Pre-Process",
+            description="Pre-process the input meshes in order to avoid geometric errors in the merging process.",
             value=True,
-            uid=[0],
         ),
         desc.BoolParam(
-            name='postProcess',
-            label='Post-Process',
-            description='''Post-process output mesh in order to avoid future geometric errors.''',
+            name="postProcess",
+            label="Post-Process",
+            description="Post-process the output mesh in order to avoid future geometric errors.",
             value=True,
-            uid=[0],
         ),
         desc.ChoiceParam(
-            name='verboseLevel',
-            label='Verbose Level',
-            description='''verbosity level (fatal, error, warning, info, debug, trace).''',
-            value='info',
-            values=['fatal', 'error', 'warning', 'info', 'debug', 'trace'],
-            exclusive=True,
-            uid=[],
+            name="verboseLevel",
+            label="Verbose Level",
+            description="Verbosity level (fatal, error, warning, info, debug, trace).",
+            values=VERBOSE_LEVEL,
+            value="info",
         ),
     ]
 
     outputs = [
         desc.File(
-            name='output',
-            label='Mesh',
-            description='''Output mesh (*.obj, *.mesh, *.meshb, *.ply, *.off, *.stl).''',
-            value=desc.Node.internalFolder + 'mesh.stl',
-            uid=[],
-            ),
+            name="output",
+            label="Mesh",
+            description="Output mesh (*.obj, *.mesh, *.meshb, *.ply, *.off, *.stl).",
+            value=desc.Node.internalFolder + "mesh.stl",
+        ),
     ]

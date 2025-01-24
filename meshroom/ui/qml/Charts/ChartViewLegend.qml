@@ -1,13 +1,13 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.9
-import QtCharts 2.3
-
+import QtQuick
+import QtQuick.Controls
+import QtCharts
 
 /**
  * ChartViewLegend is an interactive legend component for ChartViews.
  * It provides a CheckBox for each series that can control its visibility,
  * and highlight on hovering.
  */
+
 Flow {
     id: root
 
@@ -23,33 +23,32 @@ Flow {
 
     /// Shortcut function to clear legend
     function clear() {
-        seriesModel.clear();
+        seriesModel.clear()
     }
 
     // Update internal ListModel when ChartView's series change
     Connections {
         target: chartView
-        onSeriesAdded: seriesModel.append({"series": series})
-        onSeriesRemoved: {
-            for(var i = 0; i < seriesModel.count; ++i)
-            {
-                if(seriesModel.get(i)["series"] === series)
-                {
-                    seriesModel.remove(i);
-                    return;
+        function onSeriesAdded(series) {
+            seriesModel.append({"series": series})
+        }
+        function onSeriesRemoved(series) {
+            for (var i = 0; i < seriesModel.count; ++i) {
+                if (seriesModel.get(i)["series"] === series) {
+                    seriesModel.remove(i)
+                    return
                 }
             }
         }
     }
 
     onChartViewChanged: {
-        clear();
-        for(var i = 0; i < chartView.count; ++i)
-            seriesModel.append({"series": chartView.series(i)});
+        clear()
+        for (var i = 0; i < chartView.count; ++i)
+            seriesModel.append({"series": chartView.series(i)})
     }
 
     Repeater {
-
         // ChartView series can't be accessed directly as a model.
         // Use an intermediate ListModel populated with those series.
         model: ListModel {
@@ -64,13 +63,13 @@ Flow {
             color: series.color
 
             onHoveredChanged: {
-                if(hovered && series.visible)
-                    root.hoveredSeries = series;
+                if (hovered && series.visible)
+                    root.hoveredSeries = series
                 else
-                    root.hoveredSeries = null;
+                    root.hoveredSeries = null
             }
 
-            // hovered serie properties override
+            // Hovered serie properties override
             states: [
                 State {
                     when: series && root.hoveredSeries === series
@@ -84,11 +83,11 @@ Flow {
 
             MouseArea {
                 anchors.fill: parent
-                onClicked: {
-                    if(mouse.modifiers & Qt.ControlModifier)
-                        root.soloSeries(index);
+                onClicked: function(mouse) {
+                    if (mouse.modifiers & Qt.ControlModifier)
+                        root.soloSeries(index)
                     else
-                        series.visible = !series.visible;
+                        series.visible = !series.visible
                 }
             }
         }
@@ -96,10 +95,9 @@ Flow {
 
     /// Hide all series but the one at index 'idx'
     function soloSeries(idx) {
-        for(var i = 0; i < seriesModel.count; i++) {
-            chartView.series(i).visible = false;
+        for (var i = 0; i < seriesModel.count; i++) {
+            chartView.series(i).visible = false
         }
-        chartView.series(idx).visible = true;
+        chartView.series(idx).visible = true
     }
-
 }

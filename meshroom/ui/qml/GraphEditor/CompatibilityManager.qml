@@ -1,41 +1,41 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
 import MaterialIcons 2.2
 import Controls 1.0
 import Utils 1.0
 
 /**
  * CompatibilityManager summarizes and allows to resolve compatibility issues.
-*/
+ */
+
 MessageDialog {
     id: root
 
-    // the UIGraph instance
+    // The UIGraph instance
     property var uigraph
-    // alias to underlying compatibilityNodes model
+    // Alias to underlying compatibilityNodes model
     readonly property var nodesModel: uigraph ? uigraph.graph.compatibilityNodes : undefined
-    // the total number of compatibility issues
-    readonly property int issueCount: (nodesModel != undefined) ? nodesModel.count : 0
-    // the number of CompatibilityNodes that can be upgraded
+    // The total number of compatibility issues
+    readonly property int issueCount: (nodesModel !== undefined && nodesModel !== null) ? nodesModel.count : 0
+    // The number of CompatibilityNodes that can be upgraded
     readonly property int upgradableCount: {
         var count = 0
-        for(var i=0; i<issueCount; ++i)
-        {
-            if(nodesModel.at(i).canUpgrade)
+        for (var i = 0; i < issueCount; ++i) {
+            if (nodesModel.at(i).canUpgrade)
                 count++;
         }
         return count
     }
 
-    // override MessageDialog.getAsString to add compatibility report
+    // Override MessageDialog.getAsString to add compatibility report
     function getAsString() {
         var t = asString + "\n"
         t += '-------------------------\n'
         t += "Node | Issue | Upgradable\n"
         t += '-------------------------\n'
-        for(var i=0; i<issueCount; ++i)
-        {
+        for (var i = 0; i < issueCount; ++i) {
             var n = nodesModel.at(i)
              t += n.nodeType + " | " + n.issueDetails +  " | " + n.canUpgrade + "\n"
         }
@@ -67,7 +67,8 @@ MessageDialog {
             implicitHeight: contentHeight
             clip: true
             model: nodesModel
-            ScrollBar.vertical: ScrollBar { id: scrollBar }
+
+            ScrollBar.vertical: MScrollBar { id: scrollbar }
 
             spacing: 4
             headerPositioning: ListView.OverlayHeader
@@ -78,7 +79,7 @@ MessageDialog {
                 background: Rectangle { color: Qt.darker(parent.palette.window, 1.15) }
                 RowLayout {
                     width: parent.width
-                    Label { text: "Node"; Layout.preferredWidth: 130; font.bold: true }
+                    Label { text: "Node"; Layout.preferredWidth: 150; font.bold: true }
                     Label { text: "Issue"; Layout.fillWidth: true; font.bold: true }
                     Label { text: "Upgradable"; font.bold: true }
                 }
@@ -90,11 +91,11 @@ MessageDialog {
                 property var node: object
 
                 width: ListView.view.width - 12
-                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.horizontalCenter: parent != null ? parent.horizontalCenter : undefined
 
                 Label {
-                    Layout.preferredWidth: 130
-                    text: compatibilityNodeDelegate.node ? compatibilityNodeDelegate.node.nodeType : ""
+                    Layout.preferredWidth: 150
+                    text: compatibilityNodeDelegate.node ? compatibilityNodeDelegate.node.defaultLabel : ""
                 }
                 Label {
                     Layout.fillWidth: true
@@ -108,12 +109,11 @@ MessageDialog {
                     font.bold: true
                 }
             }
-
         }
 
         Label {
             id: questionLabel
-            text: upgradableCount ? "Upgrade all possible nodes to current version ?"
+            text: upgradableCount ? "Upgrade all possible nodes to current version?"
                                   : "Those nodes can't be upgraded, remove them manually if needed."
         }
     }
@@ -126,11 +126,9 @@ MessageDialog {
     }
 
     onAccepted: {
-        if(upgradableCount)
-        {
+        if (upgradableCount) {
             uigraph.upgradeAllNodes()
             upgradeDone()
         }
     }
-
 }

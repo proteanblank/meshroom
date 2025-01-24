@@ -1,8 +1,10 @@
-import QtQuick 2.7
-import QtQuick.Controls 2.0
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
 import Controls 1.0
+import MaterialIcons 2.2
+import Utils 1.0
 
 FocusScope {
     id: root
@@ -10,6 +12,8 @@ FocusScope {
     clip: true
 
     property var displayedNode: null
+    property var displayedAttr: (displayedNode && outputAttribute.name != "gallery") ? displayedNode.attributes.get(outputAttribute.name) : null
+    property var displayedAttrValue: displayedAttr ? displayedAttr.value : ""
 
     property bool useExternal: false
     property url sourceExternal
@@ -26,6 +30,17 @@ FocusScope {
     property var activeNodeFisheye: _reconstruction ? _reconstruction.activeNodes.get("PanoramaInit").node : null
     property bool cropFisheye : activeNodeFisheye ? activeNodeFisheye.attribute("useFisheye").value : false
     property bool enable8bitViewer: enable8bitViewerAction.checked
+    property bool enableSequencePlayer: enableSequencePlayerAction.checked
+
+    readonly property alias sync3DSelected: sequencePlayer.sync3DSelected
+    property var sequence: []
+    property alias currentFrame: sequencePlayer.frameId
+    property alias frameRange: sequencePlayer.frameRange
+
+    property bool fittedOnce: false
+    property int previousWidth: -1
+    property int previousHeight: -1
+    property int previousOrientationTag: 1
 
     QtObject {
         id: m
@@ -33,21 +48,29 @@ FocusScope {
             // Metadata from viewpoint attribute
             // Read from the reconstruction object
             if (_reconstruction) {
-                return getViewpointMetadata(_reconstruction.selectedViewId);
+                let vp = getViewpoint(_reconstruction.selectedViewId)
+                if (vp) {
+                    return JSON.parse(vp.childAttribute("metadata").value)
+                }
             }
-            return {};
+            return {}
         }
         property variant imgMetadata: {
             // Metadata from FloatImage viewer
             // Directly read from the image file on disk
-            if (floatImageViewerLoader.active) {
-                return floatImageViewerLoader.item.metadata;
+            if (floatImageViewerLoader.active && floatImageViewerLoader.item) {
+                return floatImageViewerLoader.item.metadata
+            }
+            // Metadata from PhongImageViewer
+            // Directly read from the image file on disk
+            if (phongImageViewerLoader.active) {
+                return phongImageViewerLoader.item.metadata
             }
             // Use viewpoint metadata for the special case of the 8-bit viewer
             if (qtImageViewerLoader.active) {
-                return viewpointMetadata;
+                return viewpointMetadata
             }
-            return {};
+            return {}
         }
     }
 
@@ -60,251 +83,315 @@ FocusScope {
     readonly property bool aliceVisionPluginAvailable: aliceVisionPluginLoader.status === Component.Ready
 
     Component.onCompleted: {
-        if(!aliceVisionPluginAvailable) {
+        if (!aliceVisionPluginAvailable) {
             console.warn("Missing plugin qtAliceVision.")
             displayHDR.checked = false
         }
     }
 
     property string loadingModules: {
-        if(!imgContainer.image)
-            return "";
-        var res = "";
-        if(imgContainer.image.status === Image.Loading)
-            res += " Image";
-        if(featuresViewerLoader.status === Loader.Ready && featuresViewerLoader.item)
-        {
-            for (var i = 0; i < featuresViewerLoader.item.count; ++i) {
-                if(featuresViewerLoader.item.itemAt(i).loadingFeatures)
-                {
-                    res += " Features";
-                    break;
-                }
-            }
+        if (!imgContainer.image)
+            return ""
+        var res = ""
+        if (imgContainer.image.imageStatus === Image.Loading) {
+            res += " Image"
         }
-        if(mfeaturesLoader.status === Loader.Ready)
-        {
-            if(mfeaturesLoader.item.status === MFeatures.Loading)
-                res += " Features";
+        if (mfeaturesLoader.status === Loader.Ready) {
+            if (mfeaturesLoader.item && mfeaturesLoader.item.status === MFeatures.Loading)
+                res += " Features"
         }
-        if(mtracksLoader.status === Loader.Ready)
-        {
-            if(mtracksLoader.item.status === MTracks.Loading)
-                res += " Tracks";
+        if (mtracksLoader.status === Loader.Ready) {
+            if (mtracksLoader.item && mtracksLoader.item.status === MTracks.Loading)
+                res += " Tracks"
         }
-        if(msfmDataLoader.status === Loader.Ready)
-        {
-            if(msfmDataLoader.item != null && msfmDataLoader.item.status === MSfMData.Loading)
-            {
-                res += " SfMData";
-            }
+        if (msfmDataLoader.status === Loader.Ready) {
+            if (msfmDataLoader.item && msfmDataLoader.item.status === MSfMData.Loading)
+                res += " SfMData"
         }
-        return res;
+        return res
     }
 
-    function clear()
-    {
-        source = ''
+    function clear() {
+        source = ""
     }
 
-    // slots
-    Keys.onPressed: {
-        if(event.key == Qt.Key_F) {
-            root.fit();
-            event.accepted = true;
+    // Slots
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_F) {
+            root.fit()
+            event.accepted = true
         }
     }
 
-    // mouse area
+    // Mouse area
     MouseArea {
         anchors.fill: parent
         property double factor: 1.2
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-        onPressed: {
+
+        onPressed: function(mouse) {
             imgContainer.forceActiveFocus()
-            if(mouse.button & Qt.MiddleButton || (mouse.button & Qt.LeftButton && mouse.modifiers & Qt.ShiftModifier))
-                drag.target = imgContainer // start drag
+            if (mouse.button & Qt.MiddleButton || (mouse.button & Qt.LeftButton && mouse.modifiers & Qt.ShiftModifier))
+                drag.target = imgContainer  // Start drag
         }
-        onReleased: {
-            drag.target = undefined // stop drag
-            if(mouse.button & Qt.RightButton) {
-                var menu = contextMenu.createObject(root);
-                menu.x = mouse.x;
-                menu.y = mouse.y;
+
+        onReleased: function(mouse) {
+            drag.target = undefined  // Stop drag
+            if (mouse.button & Qt.RightButton) {
+                var menu = contextMenu.createObject(root)
+                menu.x = mouse.x
+                menu.y = mouse.y
                 menu.open()
             }
         }
-        onWheel: {
-            var zoomFactor = wheel.angleDelta.y > 0 ? factor : 1/factor
 
-            if(Math.min(imgContainer.width, imgContainer.image.height) * imgContainer.scale * zoomFactor < 10)
+        onWheel: function(wheel) {
+            var zoomFactor = wheel.angleDelta.y > 0 ? factor : 1 / factor
+
+            if (Math.min(imgContainer.width, imgContainer.image.height) * imgContainer.scale * zoomFactor < 10)
                 return
             var point = mapToItem(imgContainer, wheel.x, wheel.y)
-            imgContainer.x += (1-zoomFactor) * point.x * imgContainer.scale
-            imgContainer.y += (1-zoomFactor) * point.y * imgContainer.scale
+            imgContainer.x += (1 - zoomFactor) * point.x * imgContainer.scale
+            imgContainer.y += (1 - zoomFactor) * point.y * imgContainer.scale
             imgContainer.scale *= zoomFactor
         }
     }
 
     onEnable8bitViewerChanged: {
         if (!enable8bitViewer) {
-            displayHDR.checked = true;
+            displayHDR.checked = true
         }
     }
 
-    // functions
+    // Functions
     function fit() {
-        // make sure the image is ready for use
-        if(!imgContainer.image)
-            return;
-        if(imgContainer.image.status != Image.Ready)
-            return;
+        // Make sure the image is ready for use
+        if (!imgContainer.image) {
+            return false
+        }
 
-        // for Exif orientation tags 5 to 8, a 90 degrees rotation is applied
+        // For Exif orientation tags 5 to 8, a 90 degrees rotation is applied
         // therefore image dimensions must be inverted
-        let dimensionsInverted = ["5", "6", "7", "8"].includes(imgContainer.orientationTag);
-        let orientedWidth = dimensionsInverted ? imgContainer.image.height : imgContainer.image.width;
-        let orientedHeight = dimensionsInverted ? imgContainer.image.width : imgContainer.image.height;
+        let dimensionsInverted = ["5", "6", "7", "8"].includes(imgContainer.orientationTag)
+        let orientedWidth = dimensionsInverted ? imgContainer.image.height : imgContainer.image.width
+        let orientedHeight = dimensionsInverted ? imgContainer.image.width : imgContainer.image.height
 
-        // fit oriented image
-        imgContainer.scale = Math.min(imgLayout.width / orientedWidth, root.height / orientedHeight);
-        imgContainer.x = Math.max((imgLayout.width - orientedWidth * imgContainer.scale)*0.5, 0);
-        imgContainer.y = Math.max((imgLayout.height - orientedHeight * imgContainer.scale)*0.5, 0);
+        // Fit oriented image
+        imgContainer.scale = Math.min(imgLayout.width / orientedWidth, root.height / orientedHeight)
+        imgContainer.x = Math.max((imgLayout.width - orientedWidth * imgContainer.scale) * 0.5, 0)
+        imgContainer.y = Math.max((imgLayout.height - orientedHeight * imgContainer.scale) * 0.5, 0)
 
-        // correct position when image dimensions are inverted
+        // Correct position when image dimensions are inverted
         // so that container center corresponds to image center
-        imgContainer.x += (orientedWidth - imgContainer.image.width) * 0.5 * imgContainer.scale;
-        imgContainer.y += (orientedHeight - imgContainer.image.height) * 0.5 * imgContainer.scale;
+        imgContainer.x += (orientedWidth - imgContainer.image.width) * 0.5 * imgContainer.scale
+        imgContainer.y += (orientedHeight - imgContainer.image.height) * 0.5 * imgContainer.scale
+
+        return true
     }
 
     function tryLoadNode(node) {
-        useExternal = false;
+        useExternal = false
 
-        // safety check
+        // Safety check
         if (!node) {
-            return false;
+            return false
         }
 
-        // node must be computed or at least running
-        if (!node.isPartiallyFinished()) {
-            return false;
+        // Node must be computed or at least running
+        if (node.isComputable && !node.isPartiallyFinished()) {
+            return false
         }
 
-        // node must have at least one output attribute with the image semantic
-        var hasImageOutputAttr = false;
-        for (var i = 0; i < node.attributes.count; i++) {
-            var attr = node.attributes.at(i);
-            if (attr.isOutput && attr.desc.semantic == "image") {
-                hasImageOutputAttr = true;
-                break;
-            }
-        }
-        if (!hasImageOutputAttr) {
-            return false;
+        // Node must have at least one output attribute with the image semantic
+        if (!node.hasImageOutput && !node.hasSequenceOutput) {
+            return false
         }
 
-        displayedNode = node;
-        return true;
+        displayedNode = node
+        return true
     }
 
     function loadExternal(path) {
-        useExternal = true;
-        sourceExternal = path;
-        displayedNode = null;
+        useExternal = true
+        sourceExternal = path
+        displayedNode = null
+    }
+
+    function getViewpoint(viewId) {
+        // Get viewpoint from cameraInit with matching id
+        // This requires to loop over all viewpoints
+        for (var i = 0; i < _reconstruction.viewpoints.count; i++) {
+            var vp = _reconstruction.viewpoints.at(i)
+            if (vp.childAttribute("viewId").value == viewId) {
+                return vp
+            }
+        }
+
+        return undefined
     }
 
     function getImageFile() {
-        // entry point for getting the image file URL
         if (useExternal) {
-            return sourceExternal;
-        }
-        if (_reconstruction && (!displayedNode || outputAttribute.name == "gallery")) {
-            return Filepath.stringToUrl(getViewpointAttribute("path",_reconstruction.selectedViewId));
+            // Entry point for getting the image file from an external URL
+            return sourceExternal
         }
 
-        var viewId = -1;
-        var intrinsicId = -1;
-        var fileName = "";
-        if (_reconstruction) {
-            viewId = _reconstruction.selectedViewId;
-            intrinsicId = getViewpointAttribute("intrinsicId", viewId);
-            fileName = Filepath.removeExtension(Filepath.basename(getViewpointAttribute("path",viewId)));
+        if (_reconstruction && (!displayedNode || outputAttribute.name == "gallery")) {
+            // Entry point for getting the image file from the gallery
+            let vp = getViewpoint(_reconstruction.pickedViewId)
+            let path = vp ? vp.childAttribute("path").value : ""
+            _reconstruction.currentViewPath = path
+            return Filepath.stringToUrl(path)
         }
-        var patterns = {"<VIEW_ID>": viewId,"<INTRINSIC_ID>": intrinsicId, "<FILENAME>": fileName}
-        return getFileAttributePath(displayedNode, outputAttribute.name,patterns);
+
+        if (_reconstruction && displayedNode && displayedNode.hasSequenceOutput && displayedAttr &&
+            (displayedAttr.desc.semantic === "imageList" || displayedAttr.desc.semantic === "sequence")) {
+            // Entry point for getting the image file from a sequence defined by an output attribute
+            var path = sequence[currentFrame - frameRange.min]
+            _reconstruction.currentViewPath = path
+            return Filepath.stringToUrl(path)
+        }
+
+        if (_reconstruction) {
+            // Entry point for getting the image file from an output attribute and associated to the current viewpoint
+            let vp = getViewpoint(_reconstruction.pickedViewId)
+            let path = displayedAttr ? displayedAttr.value : ""
+            let resolved = vp ? Filepath.resolve(path, vp) : path
+            _reconstruction.currentViewPath = resolved
+            return Filepath.stringToUrl(resolved)
+        }
+
+        return undefined
     }
 
-    function getFileAttributePath(node, attrName, patterns) {
-        // get output attribute with matching name
-        // and parse with the patterns present in the patterns dict
-        if (!node)
-            return "";
-        for (var i = 0; i < node.attributes.count; i++) {
-            var attr = node.attributes.at(i);
-            if (attr.name == attrName) {
-                let path = String(attr.value)
-                for (var key in patterns) {
-                    if (patterns.hasOwnProperty(key)) {
-                        path = path.replace(key, patterns[key])
+    function buildOrderedSequence(pathTemplate) {
+        // Resolve the path template on the sequence of viewpoints
+        // ordered by path
+        let outputFiles = []
+
+        if (displayedNode && displayedNode.hasSequenceOutput && displayedAttr) {
+
+            // Reset current frame to 0 if it is imageList but not sequence
+            if (displayedAttr.desc.semantic === "imageList") {
+                let includesSeqMissingFiles = false  // list only the existing files
+                let [_, filesSeqs] = Filepath.resolveSequence(pathTemplate, includesSeqMissingFiles)
+                // Concat in one array all sequences in resolved
+                outputFiles = [].concat.apply([], filesSeqs)
+                let newFrameRange = [0, outputFiles.length - 1]
+
+                if(frameRange.min != newFrameRange[0] || frameRange.max != newFrameRange[1]) {
+                    frameRange.min = newFrameRange[0]
+                    frameRange.max = newFrameRange[1]
+                    // Change the current frame, only if the frame range is different
+                    currentFrame = frameRange.min
+                }
+
+                enableSequencePlayerAction.checked = true
+            }
+
+            if (displayedAttr.desc.semantic === "sequence") {
+                let includesSeqMissingFiles = true
+                let [frameRanges, filesSeqs] = Filepath.resolveSequence(pathTemplate, includesSeqMissingFiles)
+                let newFrameRange = [0, 0]
+                if (filesSeqs.length > 0) {
+                    // If there is one or several sequences, take the first one
+                    outputFiles = filesSeqs[0]
+                    newFrameRange = frameRanges[0]
+
+                    if(frameRange.min != newFrameRange[0] || frameRange.max != newFrameRange[1]) {
+                        frameRange.min = newFrameRange[0]
+                        frameRange.max = newFrameRange[1]
+                        // Change the current frame, only if the frame range is different
+                        currentFrame = frameRange.min
                     }
                 }
-                return Filepath.stringToUrl(path);
+
+
+                enableSequencePlayerAction.checked = true
             }
+        } else {
+            let objs = []
+            for (let i = 0; i < _reconstruction.viewpoints.count; i++) {
+                objs.push(_reconstruction.viewpoints.at(i))
+            }
+            objs.sort((a, b) => { return a.childAttribute("path").value < b.childAttribute("path").value ? -1 : 1; })
+            
+            for (let i = 0; i < objs.length; i++) {
+                outputFiles.push(Filepath.resolve(pathTemplate, objs[i]))
+            }
+
+            frameRange.min = 0
+            frameRange.max = outputFiles.length - 1
         }
-        return "";
+        return outputFiles
     }
 
-    function getViewpointAttribute(attributeName, viewId) {
-        // get viewpoint from cameraInit with matching id and return the attribute corresponding to the attributeName
-        for (var i = 0; i < _reconstruction.viewpoints.count; i++) {
-            var vp = _reconstruction.viewpoints.at(i);
-            if (vp.childAttribute("viewId").value == viewId) {
-                return vp.childAttribute(attributeName).value;
-            }
+    function getSequence() {
+        // Entry point for getting the current image sequence
+        if (useExternal) {
+            return []
         }
-        return undefined;
-    }
 
-    function getViewpointMetadata(viewId) {
-        // get viewpoint from cameraInit with matching id
-        // and get its image filepath
-        for (var i = 0; i < _reconstruction.viewpoints.count; i++) {
-            var vp = _reconstruction.viewpoints.at(i);
-            if (vp.childAttribute("viewId").value == viewId) {
-                return JSON.parse(vp.childAttribute("metadata").value);
-            }
+        if (_reconstruction && (!displayedNode || outputAttribute.name == "gallery")) {
+            return buildOrderedSequence("<PATH>")
         }
-        return {};
+
+        if (_reconstruction) {
+            return buildOrderedSequence(displayedAttrValue)
+        }
+
+        return []
     }
 
     onDisplayedNodeChanged: {
         if (!displayedNode) {
-            root.source = "";
+            root.source = ""
         }
 
-        // update output attribute names
-        var names = [];
+        // Update output attribute names
+        var names = []
         if (displayedNode) {
-            // store attr name for output attributes that represent images
+            // Store attr name for output attributes that represent images
             for (var i = 0; i < displayedNode.attributes.count; i++) {
-                var attr = displayedNode.attributes.at(i);
-                if (attr.isOutput && attr.desc.semantic == "image") {
-                    names.push(attr.name);
+                var attr = displayedNode.attributes.at(i)
+                if (attr.isOutput && (attr.desc.semantic === "image" || attr.desc.semantic === "sequence" ||
+                    attr.desc.semantic === "imageList") && attr.enabled) {
+                    names.push(attr.name)
                 }
             }
         }
-        names.push("gallery");
-        outputAttribute.names = names;
 
-        root.source = getImageFile();
+        if (!displayedNode || displayedNode.isComputable)
+            names.push("gallery")
+
+        outputAttribute.names = names
+    }
+
+    onDisplayedAttrValueChanged: {
+        if (displayedNode && !displayedNode.hasSequenceOutput) {
+            root.source = getImageFile()
+            root.sequence = []
+        } else {
+            root.source = ""
+            root.sequence = getSequence()
+            if (currentFrame > frameRange.max)
+                currentFrame = frameRange.min
+        }
     }
 
     Connections {
         target: _reconstruction
-        onSelectedViewIdChanged: {
-            root.source = getImageFile();
+        function onSelectedViewIdChanged() {
+            root.source = getImageFile()
             if (useExternal)
-                useExternal = false;
+                useExternal = false
+        }
+    }
+
+    Connections {
+        target: displayedNode
+        function onOutputAttrEnabledChanged() {
+            tryLoadNode(displayedNode)
         }
     }
 
@@ -318,8 +405,8 @@ FocusScope {
             text: "Zoom 100%"
             onTriggered: {
                 imgContainer.scale = 1
-                imgContainer.x = Math.max((imgLayout.width-imgContainer.width*imgContainer.scale)*0.5, 0)
-                imgContainer.y = Math.max((imgLayout.height-imgContainer.height*imgContainer.scale)*0.5, 0)
+                imgContainer.x = Math.max((imgLayout.width - imgContainer.width * imgContainer.scale) * 0.5, 0)
+                imgContainer.y = Math.max((imgLayout.height - imgContainer.height * imgContainer.scale) * 0.5, 0)
             }
         }
     }
@@ -333,26 +420,24 @@ FocusScope {
             visible: displayImageToolBarAction.checked && displayImageToolBarAction.enabled
             Layout.fillWidth: true
             onVisibleChanged: {
-                resetDefaultValues();
+                resetDefaultValues()
             }
             colorPickerVisible: {
-                return !displayPanoramaViewer.checked
+                return !displayPanoramaViewer.checked && !displayPhongLighting.checked
             }
 
             colorRGBA: {
-                if(!floatImageViewerLoader.item ||
-                   floatImageViewerLoader.item.status !== Image.Ready)
-                {
-                    return null;
+                if (!floatImageViewerLoader.item ||
+                    floatImageViewerLoader.item.imageStatus !== Image.Ready) {
+                    return null
                 }
-                if(floatImageViewerLoader.item.containsMouse == false)
-                {
-                    return null;
+                if (floatImageViewerLoader.item.containsMouse === false) {
+                    return null
                 }
-                var pix = floatImageViewerLoader.item.pixelValueAt(Math.floor(floatImageViewerLoader.item.mouseX), Math.floor(floatImageViewerLoader.item.mouseY));
-                return pix;
+                var pix = floatImageViewerLoader.item.pixelValueAt(Math.floor(floatImageViewerLoader.item.mouseX),
+                                                                   Math.floor(floatImageViewerLoader.item.mouseY))
+                return pix
             }
-
         }
 
         LensDistortionToolbar {
@@ -395,16 +480,16 @@ FocusScope {
                 // qtAliceVision Image Viewer
                 ExifOrientedViewer {
                     id: floatImageViewerLoader
-                    active: root.aliceVisionPluginAvailable && (root.useFloatImageViewer || root.useLensDistortionViewer) && !panoramaViewerLoader.active
+                    active: root.aliceVisionPluginAvailable && (root.useFloatImageViewer || root.useLensDistortionViewer) && !panoramaViewerLoader.active && !phongImageViewerLoader.active
                     visible: (floatImageViewerLoader.status === Loader.Ready) && active
                     anchors.centerIn: parent
                     orientationTag: imgContainer.orientationTag
                     xOrigin: imgContainer.width / 2
                     yOrigin: imgContainer.height / 2
-                    property var fittedOnce: false
-                    property var previousWidth: 0
-                    property var previousHeight: 0
-                    onHeightChanged: {
+                    property real targetSize: Math.max(width, height) * imgContainer.scale
+                    property real resizeRatio: imgContainer.scale
+
+                    function sizeChanged() {
                         /* Image size is not updated through a single signal with the floatImage viewer, unlike
                          * the simple QML image viewer: instead of updating straight away the width and height to x and
                          * y, the emitted signals look like:
@@ -416,40 +501,84 @@ FocusScope {
                          * group has already been auto-fitted. If we change the group of images (when another project is
                          * opened, for example, and the images have a different size), then another auto-fit needs to be
                          * performed */
-                        if ((!fittedOnce && imgContainer.image.status == Image.Ready && imgContainer.image.height > 0) ||
-                            (fittedOnce && ((width > 1 && previousWidth != width) || (height > 1 && previousHeight != height)))) {
-                            fit();
-                            fittedOnce = true;
-                            previousWidth = width;
-                            previousHeight = height;
+
+                        var sizeValid = (width > 0) && (height > 0)
+                        var layoutValid = (root.width > 50) && (root.height > 50)
+                        var sizeChanged = (root.previousWidth != width) || (root.previousHeight != height)
+
+                        if ((!root.fittedOnce && imgContainer.image && sizeValid && layoutValid) ||
+                            (root.fittedOnce && sizeChanged && sizeValid && layoutValid)) {
+                            var ret = fit()
+                            if (!ret)
+                                return
+                            root.fittedOnce = true
+                            root.previousWidth = width
+                            root.previousHeight = height
+                            if (orientationTag != undefined)
+                                root.previousOrientationTag = orientationTag
                         }
+                    }
+
+                    onWidthChanged : {
+                        floatImageViewerLoader.sizeChanged();
+                    }
+
+                    Connections {
+                        target: root
+                        function onWidthChanged() {
+                            floatImageViewerLoader.sizeChanged()
+                        }
+
+                        function onHeightChanged() {
+                            floatImageViewerLoader.sizeChanged()
+                        }
+                    }
+
+                    onOrientationTagChanged: {
+                        /* For images of the same width and height but with different orientations, the auto-fit
+                         * will not be triggered by the "widthChanged()" signal, so it needs to be triggered upon
+                         * either a change in the image's size or in its orientation. */
+                         if (orientationTag != undefined && root.previousOrientationTag != orientationTag) {
+                            var ret = fit()
+                            if (!ret)
+                                return
+                            root.previousWidth = width
+                            root.previousHeight = height
+                            root.previousOrientationTag = orientationTag
+                         }
                     }
 
                     onActiveChanged: {
                         if (active) {
-                            // instantiate and initialize a FeaturesViewer component dynamically using Loader.setSource
+                            // Instantiate and initialize a FloatImage component dynamically using Loader.setSource
                             // Note: It does not work to use previously created component, so we re-create it with setSource.
-                            // floatViewerComp.createObject(floatImageViewerLoader, {
-                            setSource("FloatImage.qml", {
-                                'source':  Qt.binding(function() { return getImageFile(); }),
-                                'gamma': Qt.binding(function() { return hdrImageToolbar.gammaValue; }),
-                                'gain': Qt.binding(function() { return hdrImageToolbar.gainValue; }),
-                                'channelModeString': Qt.binding(function() { return hdrImageToolbar.channelModeValue; }),
-                                'isPrincipalPointsDisplayed' : Qt.binding(function(){ return lensDistortionImageToolbar.displayPrincipalPoint;}),
-                                'surface.displayGrid' :  Qt.binding(function(){ return lensDistortionImageToolbar.visible && lensDistortionImageToolbar.displayGrid;}),
-                                'surface.gridOpacity' : Qt.binding(function(){ return lensDistortionImageToolbar.opacityValue;}),
-                                'surface.gridColor' : Qt.binding(function(){ return lensDistortionImageToolbar.color;}),
-                                'surface.subdivisions' : Qt.binding(function(){ return root.useFloatImageViewer ? 1 : lensDistortionImageToolbar.subdivisionsValue;}),
-                                'viewerTypeString': Qt.binding(function(){ return displayLensDistortionViewer.checked ? "distortion" : "hdr";}),
-                                'sfmRequired': Qt.binding(function(){ return displayLensDistortionViewer.checked ? true : false;}),
-                                'surface.msfmData': Qt.binding(function() { return (msfmDataLoader.status === Loader.Ready && msfmDataLoader.item != null && msfmDataLoader.item.status === 2) ? msfmDataLoader.item : null; }),
-                                'canBeHovered': false,
-                                'idView': Qt.binding(function() { return (_reconstruction ? _reconstruction.selectedViewId : -1); }),
-                                'cropFisheye': false
+                            floatImageViewerLoader.setSource("FloatImage.qml", {
+                                "source":  Qt.binding(function() { return getImageFile() }),
+                                "gamma": Qt.binding(function() { return hdrImageToolbar.gammaValue }),
+                                "gain": Qt.binding(function() { return hdrImageToolbar.gainValue }),
+                                "channelModeString": Qt.binding(function() { return hdrImageToolbar.channelModeValue }),
+                                "isPrincipalPointsDisplayed": Qt.binding(function() { return lensDistortionImageToolbar.displayPrincipalPoint }),
+                                "surface.displayGrid":  Qt.binding(function() { return lensDistortionImageToolbar.visible && lensDistortionImageToolbar.displayGrid }),
+                                "surface.gridOpacity": Qt.binding(function() { return lensDistortionImageToolbar.opacityValue }),
+                                "surface.gridColor": Qt.binding(function() { return lensDistortionImageToolbar.color }),
+                                "surface.subdivisions": Qt.binding(function() { return root.useFloatImageViewer ? 1 : lensDistortionImageToolbar.subdivisionsValue }),
+                                "viewerTypeString": Qt.binding(function() { return displayLensDistortionViewer.checked ? "distortion" : "hdr" }),
+                                "surface.msfmData": Qt.binding(function() { return (msfmDataLoader.status === Loader.Ready && msfmDataLoader.item != null && msfmDataLoader.item.status === 2) ? msfmDataLoader.item : null }),
+                                "canBeHovered": false,
+                                "idView": Qt.binding(function() { return ((root.displayedNode && !root.displayedNode.hasSequenceOutput && _reconstruction) ? _reconstruction.selectedViewId : -1) }),
+                                "cropFisheye": false,
+                                "sequence": Qt.binding(function() { return ((root.enableSequencePlayer && (_reconstruction || (root.displayedNode && root.displayedNode.hasSequenceOutput))) ? getSequence() : []) }),
+                                "resizeRatio": Qt.binding(function() { return floatImageViewerLoader.resizeRatio }),
+                                "targetSize": Qt.binding(function() { return floatImageViewerLoader.targetSize }),
+                                "useSequence": Qt.binding(function() { 
+                                    return (root.enableSequencePlayer && !useExternal && (_reconstruction || (root.displayedNode && root.displayedNode.hasSequenceOutput && (displayedAttr.desc.semantic === "imageList" || displayedAttr.desc.semantic === "sequence"))))
+                                }),
+                                "fetchingSequence": Qt.binding(function() { return sequencePlayer.loading }),
+                                "memoryLimit": Qt.binding(function() { return sequencePlayer.settings_SequencePlayer.maxCacheMemory }),
                                 })
                           } else {
-                                // Force the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
-                                setSource("", {})
+                                // Forcing the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
+                                floatImageViewerLoader.setSource("", {})
                                 fittedOnce = false
                           }
                     }
@@ -458,27 +587,126 @@ FocusScope {
                 // qtAliceVision Panorama Viewer
                 Loader {
                     id: panoramaViewerLoader
-                    active: root.aliceVisionPluginAvailable && root.usePanoramaViewer && _reconstruction.activeNodes.get('sfm').node
+                    active: root.aliceVisionPluginAvailable && root.usePanoramaViewer &&
+                            _reconstruction.activeNodes.get('sfm').node
                     visible: (panoramaViewerLoader.status === Loader.Ready) && active
                     anchors.centerIn: parent
 
                     onActiveChanged: {
-                        if(active) {
+                        if (active) {
                             setSource("PanoramaViewer.qml", {
-                                'subdivisionsPano': Qt.binding(function(){ return panoramaViewerToolbar.subdivisionsValue;}),
-                                'cropFisheyePano': Qt.binding(function(){ return root.cropFisheye;}),
-                                'downscale': Qt.binding(function(){ return panoramaViewerToolbar.downscaleValue;}),
-                                'isEditable': Qt.binding(function(){ return panoramaViewerToolbar.enableEdit;}),
-                                'isHighlightable': Qt.binding(function(){ return panoramaViewerToolbar.enableHover;}),
-                                'displayGridPano': Qt.binding(function(){ return panoramaViewerToolbar.displayGrid;}),
-                                'mouseMultiplier': Qt.binding(function(){ return panoramaViewerToolbar.mouseSpeed;}),
-                                'msfmData': Qt.binding(function() { return (msfmDataLoader.status === Loader.Ready
-                                                                           && msfmDataLoader.item.status === 2) ? msfmDataLoader.item : null; }),
+                                "subdivisionsPano": Qt.binding(function() { return panoramaViewerToolbar.subdivisionsValue }),
+                                "cropFisheyePano": Qt.binding(function() { return root.cropFisheye }),
+                                "downscale": Qt.binding(function() { return panoramaViewerToolbar.downscaleValue }),
+                                "isEditable": Qt.binding(function() { return panoramaViewerToolbar.enableEdit }),
+                                "isHighlightable": Qt.binding(function() { return panoramaViewerToolbar.enableHover }),
+                                "displayGridPano": Qt.binding(function() { return panoramaViewerToolbar.displayGrid }),
+                                "mouseMultiplier": Qt.binding(function() { return panoramaViewerToolbar.mouseSpeed }),
+                                "msfmData": Qt.binding(function() { return (msfmDataLoader && msfmDataLoader.item && msfmDataLoader.status === Loader.Ready
+                                                                           && msfmDataLoader.item.status === 2) ? msfmDataLoader.item : null }),
                             })
                         } else {
-                            // Force the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
+                            // Forcing the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
                             setSource("", {})
-                            displayPanoramaViewer.checked = false;
+                            displayPanoramaViewer.checked = false
+                        }
+                    }
+                }
+
+                // qtAliceVision Phong Image Viewer
+                ExifOrientedViewer {
+                    id: phongImageViewerLoader
+                    active: root.aliceVisionPluginAvailable && displayPhongLighting.enabled && displayPhongLighting.checked
+                    visible: (phongImageViewerLoader.status === Loader.Ready) && active
+                    anchors.centerIn: parent
+                    orientationTag: imgContainer.orientationTag
+                    xOrigin: imgContainer.width / 2
+                    yOrigin: imgContainer.height / 2
+
+                    property var activeNode: _reconstruction ? _reconstruction.activeNodes.get('PhotometricStereo').node : null
+                    property var vp: _reconstruction ? getViewpoint(_reconstruction.selectedViewId) : null
+                    property url sourcePath: getAlbedoFile()
+                    property url normalPath: getNormalFile()
+                    property bool fittedOnce: false
+                    property int previousWidth: 0
+                    property int previousHeight: 0
+                    property int previousOrientationTag: 1
+
+                    function getAlbedoFile() {
+
+                        if(vp && activeNode && activeNode.hasAttribute("albedo")) {
+                            return Filepath.stringToUrl(Filepath.resolve(activeNode.attribute("albedo").value, vp))
+                        }
+
+                        return getImageFile()
+                    }
+
+                    function getNormalFile() {
+
+                        if(vp && activeNode && activeNode.hasAttribute("normals")) {
+                            return Filepath.stringToUrl(Filepath.resolve(activeNode.attribute("normals").value, vp))
+                        }
+
+                        return getImageFile()
+                    }
+
+                    onWidthChanged: {
+                        /* We want to do the auto-fit on the first display of an image from the group, and then keep its
+                         * scale when displaying another image from the group, so we need to know if an image in the
+                         * group has already been auto-fitted. If we change the group of images (when another project is
+                         * opened, for example, and the images have a different size), then another auto-fit needs to be
+                         * performed */
+                        if ((!fittedOnce && imgContainer.image && imgContainer.image.width > 0) ||
+                            (fittedOnce && ((width > 1 && previousWidth != width) || (height > 1 && previousHeight != height)))) {
+                            var ret = fit()
+                            if (!ret)
+                                return
+                            fittedOnce = true
+                            previousWidth = width
+                            previousHeight = height
+                            if (orientationTag != undefined)
+                                previousOrientationTag = orientationTag
+                        }
+                    }
+
+                    onOrientationTagChanged: {
+                        /* For images of the same width and height but with different orientations, the auto-fit
+                         * will not be triggered by the "widthChanged()" signal, so it needs to be triggered upon
+                         * either a change in the image's size or in its orientation. */
+                        if (orientationTag != undefined && previousOrientationTag != orientationTag) {
+                            var ret = fit()
+                            if (!ret)
+                                return
+                            fittedOnce = true
+                            previousWidth = width
+                            previousHeight = height
+                            previousOrientationTag = orientationTag
+                        }
+                    }
+
+                    onActiveChanged: {
+                        if (active) {
+                            /* Instantiate and initialize a PhongImageViewer component dynamically using Loader.setSource
+                             * Note: It does not work to use previously created component, so we re-create it with setSource. */
+                            setSource("PhongImageViewer.qml", {
+                                'sourcePath':  Qt.binding(function() { return sourcePath }),
+                                'normalPath':  Qt.binding(function() { return normalPath }),
+                                'gamma': Qt.binding(function() { return hdrImageToolbar.gammaValue }),
+                                'gain': Qt.binding(function() { return hdrImageToolbar.gainValue }),
+                                'channelModeString': Qt.binding(function() { return hdrImageToolbar.channelModeValue }),
+                                'baseColor': Qt.binding(function() { return phongImageViewerToolbar.baseColorValue }),
+                                'textureOpacity': Qt.binding(function() { return phongImageViewerToolbar.textureOpacityValue }),
+                                'ka': Qt.binding(function() { return phongImageViewerToolbar.kaValue }),
+                                'kd': Qt.binding(function() { return phongImageViewerToolbar.kdValue }),
+                                'ks': Qt.binding(function() { return phongImageViewerToolbar.ksValue }),
+                                'shininess': Qt.binding(function() { return phongImageViewerToolbar.shininessValue }),
+                                'lightYaw': Qt.binding(function() { return -directionalLightPane.lightYawValue }), // left handed coordinate system
+                                'lightPitch': Qt.binding(function() { return directionalLightPane.lightPitchValue }),
+                            })
+                        } else {
+                            // Forcing the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
+                            setSource("", {})
+                            fittedOnce = false
                         }
                     }
                 }
@@ -486,7 +714,7 @@ FocusScope {
                 // Simple QML Image Viewer (using Qt or qtAliceVisionImageIO to load images)
                 ExifOrientedViewer {
                     id: qtImageViewerLoader
-                    active: !floatImageViewerLoader.active && !panoramaViewerLoader.active
+                    active: !floatImageViewerLoader.active && !panoramaViewerLoader.active && !phongImageViewerLoader.active
                     anchors.centerIn: parent
                     orientationTag: imgContainer.orientationTag
                     xOrigin: imgContainer.width / 2
@@ -496,13 +724,16 @@ FocusScope {
                         asynchronous: true
                         smooth: false
                         fillMode: Image.PreserveAspectFit
-                        onWidthChanged: if(status==Image.Ready) fit()
+                        onWidthChanged: if (status==Image.Ready) fit()
                         source: getImageFile()
                         onStatusChanged: {
-                            // update cache source when image is loaded
-                            if(status === Image.Ready)
+                            // Update cache source when image is loaded
+                            imageStatus = status
+                            if (status === Image.Ready)
                                 qtImageViewerCache.source = source
                         }
+
+                        property var imageStatus: Image.Ready
 
                         // Image cache of the last loaded image
                         // Only visible when the main one is loading, to maintain a displayed image for smoother transitions
@@ -524,6 +755,8 @@ FocusScope {
                         floatImageViewerLoader.item
                     else if (panoramaViewerLoader.active)
                         panoramaViewerLoader.item
+                    else if (phongImageViewerLoader.active)
+                        phongImageViewerLoader.item
                     else
                         qtImageViewerLoader.item
                 }
@@ -532,11 +765,11 @@ FocusScope {
                 scale: 1.0
 
                 // FeatureViewer: display view extracted feature points
-                // note: requires QtAliceVision plugin - use a Loader to evaluate plugin availability at runtime
+                // Note: requires QtAliceVision plugin - use a Loader to evaluate plugin availability at runtime
                 ExifOrientedViewer {
                     id: featuresViewerLoader
-                    active: displayFeatures.checked
-                    property var activeNode: _reconstruction ? _reconstruction.activeNodes.get("FeatureExtraction").node : null
+                    active: displayFeatures.checked && !useExternal
+                    property var activeNode: _reconstruction ? _reconstruction.activeNodes.get("featureProvider").node : null
                     width: imgContainer.width
                     height: imgContainer.height
                     anchors.centerIn: parent
@@ -545,73 +778,170 @@ FocusScope {
                     yOrigin: imgContainer.height / 2
 
                     onActiveChanged: {
-                        if(active) {
-
-                            // instantiate and initialize a FeaturesViewer component dynamically using Loader.setSource
+                        if (active) {
+                            // Instantiate and initialize a FeaturesViewer component dynamically using Loader.setSource
                             setSource("FeaturesViewer.qml", {
-                                'model': Qt.binding(function() { return activeNode ? activeNode.attribute("describerTypes").value : ""; }),
-                                'features': Qt.binding(function() { return mfeaturesLoader.status === Loader.Ready ? mfeaturesLoader.item : null; }),
+                                "model": Qt.binding(function() { return activeNode ? activeNode.attribute("describerTypes").value : "" }),
+                                "currentViewId": Qt.binding(function() { return _reconstruction.selectedViewId }),
+                                "features": Qt.binding(function() { return mfeaturesLoader.status === Loader.Ready ? mfeaturesLoader.item : null }),
+                                "tracks": Qt.binding(function() { return mtracksLoader.status === Loader.Ready ? mtracksLoader.item : null }),
+                                "sfmData": Qt.binding(function() { return msfmDataLoader.status === Loader.Ready ? msfmDataLoader.item : null }),
+                                "syncFeaturesSelected": Qt.binding(function() { return sequencePlayer.syncFeaturesSelected }),
                             })
                         } else {
-                            // Force the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
+                            // Forcing the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
                             setSource("", {})
                         }
                     }
                 }
 
                 // FisheyeCircleViewer: display fisheye circle
-                // note: use a Loader to evaluate if a PanoramaInit node exist and displayFisheyeCircle checked at runtime
+                // Note: use a Loader to evaluate if a PanoramaInit node exist and displayFisheyeCircle checked at runtime
                 ExifOrientedViewer {
                     anchors.centerIn: parent
                     orientationTag: imgContainer.orientationTag
                     xOrigin: imgContainer.width / 2
                     yOrigin: imgContainer.height / 2
                     property var activeNode: _reconstruction ? _reconstruction.activeNodes.get("PanoramaInit").node : null
-                    active: (displayFisheyeCircleLoader.checked && activeNode)
+                    active: displayFisheyeCircleLoader.checked && activeNode
 
                     sourceComponent: CircleGizmo {
+                        width: imgContainer.width
+                        height: imgContainer.height
+
                         property bool useAuto: activeNode.attribute("estimateFisheyeCircle").value
                         readOnly: useAuto
                         visible: (!useAuto) || activeNode.isComputed
                         property real userFisheyeRadius: activeNode.attribute("fisheyeRadius").value
                         property variant fisheyeAutoParams: _reconstruction.getAutoFisheyeCircle(activeNode)
 
-                        x: useAuto ? fisheyeAutoParams.x : activeNode.attribute("fisheyeCenterOffset.fisheyeCenterOffset_x").value
-                        y: useAuto ? fisheyeAutoParams.y : activeNode.attribute("fisheyeCenterOffset.fisheyeCenterOffset_y").value
-                        radius: useAuto ? fisheyeAutoParams.z : ((imgContainer.image ? Math.min(imgContainer.image.width, imgContainer.image.height) : 1.0) * 0.5 * (userFisheyeRadius * 0.01))
+                        circleX: useAuto ? fisheyeAutoParams.x : activeNode.attribute("fisheyeCenterOffset.fisheyeCenterOffset_x").value
+                        circleY: useAuto ? fisheyeAutoParams.y : activeNode.attribute("fisheyeCenterOffset.fisheyeCenterOffset_y").value
 
-                        border.width: Math.max(1, (3.0 / imgContainer.scale))
-                        onMoved: {
-                            if(!useAuto)
-                            {
+                        circleRadius: useAuto ? fisheyeAutoParams.z : ((imgContainer.image ? Math.min(imgContainer.image.width, imgContainer.image.height) : 1.0) * 0.5 * (userFisheyeRadius * 0.01))
+
+                        circleBorder.width: Math.max(1, (3.0 / imgContainer.scale))
+                        onMoved: function(xoffset, yoffset) {
+                            if (!useAuto) {
                                 _reconstruction.setAttribute(
                                     activeNode.attribute("fisheyeCenterOffset"),
-                                    JSON.stringify([x, y])
-                                );
+                                    JSON.stringify([xoffset, yoffset])
+                                )
                             }
                         }
-                        onIncrementRadius: {
-                            if(!useAuto)
-                            {
+                        onIncrementRadius: function(radiusOffset) {
+                            if (!useAuto) {
                                 _reconstruction.setAttribute(activeNode.attribute("fisheyeRadius"), activeNode.attribute("fisheyeRadius").value + radiusOffset)
                             }
                         }
                     }
                 }
 
+                // LightingCalibration: display circle
+                ExifOrientedViewer {
+                    property var activeNode: _reconstruction.activeNodes.get("SphereDetection").node 
+    
+                    anchors.centerIn: parent
+                    orientationTag: imgContainer.orientationTag
+                    xOrigin: imgContainer.width / 2
+                    yOrigin: imgContainer.height / 2
+                    active: displayLightingCircleLoader.checked && activeNode
+
+                    sourceComponent: CircleGizmo {
+                        property var jsonFolder: activeNode.attribute("output").value
+                        property var json: null
+                        property var currentViewId: _reconstruction.selectedViewId
+                        property var nodeCircleX: activeNode.attribute("sphereCenter.x").value
+                        property var nodeCircleY: activeNode.attribute("sphereCenter.y").value
+                        property var nodeCircleRadius: activeNode.attribute("sphereRadius").value
+                        
+                        width: imgContainer.width
+                        height: imgContainer.height
+                        readOnly: activeNode.attribute("autoDetect").value
+                        circleX: nodeCircleX
+                        circleY: nodeCircleY
+                        circleRadius: nodeCircleRadius
+                        circleBorder.width: Math.max(1, (3.0 / imgContainer.scale))
+
+                        onJsonFolderChanged: {
+                            json = null
+                            if (activeNode.attribute("autoDetect").value) {
+                                // Auto detection enabled
+                                var jsonPath = activeNode.attribute("output").value
+                                Request.get(Filepath.stringToUrl(jsonPath), function(xhr) {
+                                    if (xhr.readyState === XMLHttpRequest.DONE) {
+                                        try {
+                                            json = JSON.parse(xhr.responseText)
+                                        } catch(exc) {
+                                            console.warn("Failed to parse SphereDetection JSON file: " + jsonPath)
+                                        }
+                                    }
+                                    updateGizmo()
+                                })
+                            }
+                        }
+
+                        onCurrentViewIdChanged: { updateGizmo() }
+                        onNodeCircleXChanged : { updateGizmo() }
+                        onNodeCircleYChanged : { updateGizmo() }
+                        onNodeCircleRadiusChanged : { updateGizmo() }
+
+                        function updateGizmo() {
+                            if (activeNode.attribute("autoDetect").value) {
+                                // Update gizmo from auto detection JSON file
+                                if (json) {
+                                    // JSON file found
+                                    var data = json[currentViewId]
+                                    if (data && data[0]) {
+                                        // Current view id found
+                                        circleX = data[0].x
+                                        circleY= data[0].y
+                                        circleRadius = data[0].r
+                                        return
+                                    }
+                                }
+                                // No auto detection data
+                                circleX = -1
+                                circleY= -1
+                                circleRadius = 0
+                            }
+                            else {
+                                // Update gizmo from node manual parameters
+                                circleX = nodeCircleX
+                                circleY = nodeCircleY
+                                circleRadius = nodeCircleRadius
+                            }
+                        }
+
+                        onMoved: {
+                            _reconstruction.setAttribute(activeNode.attribute("sphereCenter"),
+                                                         JSON.stringify([xoffset, yoffset]))
+                        }
+
+                        onIncrementRadius: {
+                            _reconstruction.setAttribute(activeNode.attribute("sphereRadius"),
+                                                         activeNode.attribute("sphereRadius").value + radiusOffset)
+                        }
+                    }
+                }
+
                 // ColorCheckerViewer: display color checker detection results
-                // note: use a Loader to evaluate if a ColorCheckerDetection node exist and displayColorChecker checked at runtime
-                Loader {
+                // Note: use a Loader to evaluate if a ColorCheckerDetection node exist and displayColorChecker checked at runtime
+                ExifOrientedViewer {
                     id: colorCheckerViewerLoader
                     anchors.centerIn: parent
+                    orientationTag: imgContainer.orientationTag
+                    xOrigin: imgContainer.width / 2
+                    yOrigin: imgContainer.height / 2
                     property var activeNode: _reconstruction ? _reconstruction.activeNodes.get("ColorCheckerDetection").node : null
                     active: (displayColorCheckerViewerLoader.checked && activeNode)
 
-
                     sourceComponent: ColorCheckerViewer {
-                        visible: activeNode.isComputed && json !== undefined && imgContainer.image.status === Image.Ready
+                        width: imgContainer.width
+                        height: imgContainer.height
+
+                        visible: activeNode.isComputed && json !== undefined && imgContainer.image.imageStatus === Image.Ready
                         source: Filepath.stringToUrl(activeNode.attribute("outputData").value)
-                        image: imgContainer.image
                         viewpoint: _reconstruction.selectedViewpoint
                         zoom: imgContainer.scale
 
@@ -625,6 +955,7 @@ FocusScope {
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 0
+
                 FloatingPane {
                     id: imagePathToolbar
                     Layout.fillWidth: true
@@ -636,7 +967,7 @@ FocusScope {
                         width: parent.width
                         height: childrenRect.height
 
-                        // selectable filepath to source image
+                        // Selectable filepath to source image
                         TextField {
                             padding: 0
                             background: Item {}
@@ -646,10 +977,10 @@ FocusScope {
                             font.pointSize: 8
                             readOnly: true
                             selectByMouse: true
-                            text: Filepath.urlToString(getImageFile())
+                            text: (phongImageViewerLoader.active) ? Filepath.urlToString(phongImageViewerLoader.sourcePath) : Filepath.urlToString(getImageFile())
                         }
 
-                        // write which node is being displayed
+                        // Write which node is being displayed
                         Label {
                             id: displayedNodeName
                             text: root.displayedNode ? root.displayedNode.label : ""
@@ -661,19 +992,58 @@ FocusScope {
                             height: contentHeight
                         }
 
-                        // button to clear currently displayed node
+                        // Button to clear currently displayed file
                         MaterialToolButton {
-                            id: clearDisplayedNode
+                            id: clearViewerButton
                             text: MaterialIcons.close
-                            ToolTip.text: "Clear node"
-                            enabled: root.displayedNode
-                            visible: root.displayedNode
+                            ToolTip.text: root.useExternal ? "Close external file" : "Clear node"
+                            enabled: root.displayedNode || root.useExternal
+                            visible: root.displayedNode || root.useExternal
                             onClicked: {
-                                root.displayedNode = null
+                                if (root.displayedNode)
+                                    root.displayedNode = null
+                                if (root.useExternal)
+                                    root.useExternal = false
                             }
                         }
                     }
                 }
+
+                FloatingPane {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: false
+                    Layout.preferredHeight: childrenRect.height
+                    visible: floatImageViewerLoader.item !== null && floatImageViewerLoader.item.imageStatus === Image.Error
+                    Layout.alignment: Qt.AlignHCenter
+
+                    RowLayout {
+                        anchors.fill: parent
+
+                        Label {
+                            font.pointSize: 8
+                            text: {
+                                if (floatImageViewerLoader.item !== null) {
+                                    switch (floatImageViewerLoader.item.status) {
+                                        case 2:  // AliceVision.FloatImageViewer.EStatus.OUTDATED_LOADING
+                                            return "Outdated Loading"
+                                        case 3:  // AliceVision.FloatImageViewer.EStatus.MISSING_FILE
+                                            return "Missing File"
+                                        case 4:  // AliceVision.FloatImageViewer.EStatus.LOADING_ERROR
+                                            return "Error"
+                                        default:
+                                            return ""
+                                    }
+                                }
+                                return ""
+                            }
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+                    }
+                }
+
                 Item {
                     id: imgPlaceholder
                     Layout.fillWidth: true
@@ -689,17 +1059,16 @@ FocusScope {
                         }
 
                         visible: metadataCB.checked
-                        // only load metadata model if visible
+                        // Only load metadata model if visible
                         metadata: {
                             if (visible) {
                                 if (root.useExternal || outputAttribute.name != "gallery") {
-                                    return m.imgMetadata;
-                                }
-                                else {
-                                    return m.viewpointMetadata;
+                                    return m.imgMetadata
+                                } else {
+                                    return m.viewpointMetadata
                                 }
                             }
-                            return {};
+                            return {}
                         }
                     }
 
@@ -718,116 +1087,97 @@ FocusScope {
                         id: mfeaturesLoader
 
                         property bool isUsed: displayFeatures.checked
-                        property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get("FeatureExtraction").node : null
+                        property var activeNode: {
+                            if (!root.aliceVisionPluginAvailable) {
+                                return null
+                            }
+                            return _reconstruction ? _reconstruction.activeNodes.get("featureProvider").node : null
+                        }
                         property bool isComputed: activeNode && activeNode.isComputed
-                        active: false
-
-                        onIsUsedChanged: {
-                            active = (!active && isUsed && isComputed);
-                        }
-                        onIsComputedChanged: {
-                            active = (!active && isUsed && isComputed);
-                        }
-                        onActiveNodeChanged: {
-                            active = (!active && isUsed && isComputed);
-                        }
+                        active: isUsed && isComputed
 
                         onActiveChanged: {
-                            if(active) {
-                                // instantiate and initialize a MFeatures component dynamically using Loader.setSource
-                                // so it can fail safely if the c++ plugin is not available
+                            if (active) {
+                                // Instantiate and initialize a MFeatures component dynamically using Loader.setSource
+                                // so it can fail safely if the C++ plugin is not available
                                 setSource("MFeatures.qml", {
-                                    'currentViewId': Qt.binding(function() { return _reconstruction.selectedViewId; }),
-                                    'describerTypes': Qt.binding(function() { return activeNode ? activeNode.attribute("describerTypes").value : {}; }),
-                                    'featureFolder': Qt.binding(function() { return activeNode ? Filepath.stringToUrl(activeNode.attribute("output").value) : ""; }),
-                                    'mtracks': Qt.binding(function() { return mtracksLoader.status === Loader.Ready ? mtracksLoader.item : null; }),
-                                    'msfmData': Qt.binding(function() { return msfmDataLoader.status === Loader.Ready ? msfmDataLoader.item : null; }),
+                                    "describerTypes": Qt.binding(function() {
+                                        return activeNode ? activeNode.attribute("describerTypes").value : {}
+                                    }),
+                                    "featureFolders": Qt.binding(function() {
+                                        let result = []
+                                        if (activeNode) {
+                                            if (activeNode.nodeType == "FeatureExtraction" && isComputed) {
+                                                result.push(activeNode.attribute("output").value)
+                                            } else if (activeNode.hasAttribute("featuresFolders")) {
+                                                for (let i = 0; i < activeNode.attribute("featuresFolders").value.count; i++) {
+                                                    let attr = activeNode.attribute("featuresFolders").value.at(i)
+                                                    result.push(attr.value)
+                                                }
+                                            }
+                                        }
+                                        return result
+                                    }),
+                                    "viewIds": Qt.binding(function() {
+                                        if (_reconstruction) {
+                                            let result = [];
+                                            for (let i = 0; i < _reconstruction.viewpoints.count; i++) {
+                                                let vp = _reconstruction.viewpoints.at(i)
+                                                result.push(vp.childAttribute("viewId").value)
+                                            }
+                                            return result
+                                        }
+                                        return {}
+                                    }),
                                 })
-
                             } else {
-                                // Force the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
+                                // Forcing the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
                                 setSource("", {})
                             }
                         }
                     }
+
                     Loader {
                         id: msfmDataLoader
 
                         property bool isUsed: displayFeatures.checked || displaySfmStatsView.checked || displaySfmDataGlobalStats.checked
                                               || displayPanoramaViewer.checked || displayLensDistortionViewer.checked
                         property var activeNode: {
-                            if(! root.aliceVisionPluginAvailable){
+                            if (!root.aliceVisionPluginAvailable) {
                                 return null
                             }
-                            // For lens distortion viewer: use all nodes creating a sfmData file
-                            var nodeType = displayLensDistortionViewer.checked ? 'sfmData' : 'sfm'
+                            var nodeType = "sfm"
+                            if (displayLensDistortionViewer.checked) {
+                                nodeType = "sfmData"
+                            }
                             var sfmNode = _reconstruction ? _reconstruction.activeNodes.get(nodeType).node : null
-                            if(sfmNode === null){
+                            if (sfmNode === null) {
                                 return null
                             }
-                            if(displayPanoramaViewer.checked){
+                            if (displayPanoramaViewer.checked) {
                                 sfmNode = _reconstruction.activeNodes.get('SfMTransform').node
                                 var previousNode = sfmNode.attribute("input").rootLinkParam.node
                                 return previousNode
                             }
-                            else{
-                                return sfmNode
-                            }
+                            return sfmNode
                         }
                         property bool isComputed: activeNode && activeNode.isComputed
                         property string filepath: {
                             var sfmValue = ""
-                            if(!isComputed){
-                                return Filepath.stringToUrl(sfmValue)
+                            if (isComputed && activeNode.hasAttribute("output")) {
+                                sfmValue = activeNode.attribute("output").value
                             }
-                            else{
-                                if(activeNode.hasAttribute("output")){
-                                    sfmValue = activeNode.attribute("output").value
-                                }
-                                return Filepath.stringToUrl(sfmValue)
-                            }
+                            return Filepath.stringToUrl(sfmValue)
                         }
 
-                        active: false
-                        // It takes time to load tracks, so keep them looaded, if we may use it again.
-                        // If we load another node, we can trash them (to eventually load the new node data).
-                        onIsUsedChanged: {
-                            if(!active && isUsed && isComputed)
-                            {
-                                active = true;
-                            }
-                        }
-                        onIsComputedChanged: {
-                            if(!isComputed)
-                            {
-                                active = false;
-                            }
-                            else if(!active && isUsed)
-                            {
-                                active = true;
-                            }
-                        }
-                        onActiveNodeChanged: {
-                            if(!isUsed)
-                            {
-                                active = false;
-                            }
-                            else if(!isComputed)
-                            {
-                                active = false;
-                            }
-                            else
-                            {
-                                active = true;
-                            }
-                        }
+                        active: isUsed && isComputed
 
                         onActiveChanged: {
-                            if(active) {
-                                // instantiate and initialize a SfmStatsView component dynamically using Loader.setSource
+                            if (active) {
+                                // Instantiate and initialize a SfmStatsView component dynamically using Loader.setSource
                                 // so it can fail safely if the c++ plugin is not available
                                 setSource("MSfMData.qml", {
-                                    'sfmDataPath': Qt.binding(function() { return filepath; }),
+                                    "sfmDataPath": Qt.binding(function() { return filepath }),
                                 })
                             } else {
                                 // Force the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
@@ -835,54 +1185,48 @@ FocusScope {
                             }
                         }
                     }
+
                     Loader {
                         id: mtracksLoader
 
                         property bool isUsed: displayFeatures.checked || displaySfmStatsView.checked || displaySfmDataGlobalStats.checked || displayPanoramaViewer.checked
-                        property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get('FeatureMatching').node : null
+                        property var activeNode: {
+                            if (!root.aliceVisionPluginAvailable) {
+                                return null
+                            }
+                            return _reconstruction ? _reconstruction.activeNodes.get("matchProvider").node : null
+                        }
                         property bool isComputed: activeNode && activeNode.isComputed
 
-                        active: false
-                        // It takes time to load tracks, so keep them looaded, if we may use it again.
-                        // If we load another node, we can trash them (to eventually load the new node data).
-                        onIsUsedChanged: {
-                            if(!active && isUsed && isComputed) {
-                                active = true;
-                            }
-                        }
-                        onIsComputedChanged: {
-                            if(!isComputed) {
-                                active = false;
-                            }
-                            else if(!active && isUsed) {
-                                active = true;
-                            }
-                        }
-                        onActiveNodeChanged: {
-                            if(!isUsed) {
-                                active = false;
-                            }
-                            else if(!isComputed) {
-                                active = false;
-                            }
-                            else {
-                                active = true;
-                            }
-                        }
+                        active: isUsed && isComputed
 
                         onActiveChanged: {
-                            if(active) {
+                            if (active) {
                                 // instantiate and initialize a SfmStatsView component dynamically using Loader.setSource
                                 // so it can fail safely if the c++ plugin is not available
                                 setSource("MTracks.qml", {
-                                    'matchingFolder': Qt.binding(function() { return Filepath.stringToUrl(isComputed ? activeNode.attribute("output").value : ""); }),
+                                    "matchingFolders": Qt.binding(function() {
+                                        let result = []
+                                        if (activeNode) {
+                                            if (activeNode.nodeType == "FeatureMatching" && isComputed) {
+                                                result.push(activeNode.attribute("output").value)
+                                            } else if (activeNode.hasAttribute("matchesFolders")) {
+                                                for (let i = 0; i < activeNode.attribute("matchesFolders").value.count; i++) {
+                                                    let attr = activeNode.attribute("matchesFolders").value.at(i)
+                                                    result.push(attr.value)
+                                                }
+                                            }
+                                        }
+                                        return result
+                                    }),
                                 })
                             } else {
-                                // Force the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
+                                // Forcing the unload (instead of using Component.onCompleted to load it once and for all) is necessary since Qt 5.14
                                 setSource("", {})
                             }
                         }
                     }
+
                     Loader {
                         id: sfmStatsView
                         anchors.fill: parent
@@ -893,14 +1237,15 @@ FocusScope {
                             // (necessary since Qt 5.14, Component.onCompleted cannot be used anymore to load the data once and for all)
                             if (active) {
                                 setSource("SfmStatsView.qml", {
-                                    "msfmData": Qt.binding(function() { return msfmDataLoader.item; }),
-                                    "viewId": Qt.binding(function() { return _reconstruction.selectedViewId; }),
+                                    "msfmData": Qt.binding(function() { return msfmDataLoader.item }),
+                                    "viewId": Qt.binding(function() { return _reconstruction.selectedViewId }),
                                 })
                             } else {
                                 setSource("", {})
                             }
                         }
                     }
+
                     Loader {
                         id: sfmGlobalStats
                         anchors.fill: parent
@@ -911,8 +1256,8 @@ FocusScope {
                             // (necessary since Qt 5.14, Component.onCompleted cannot be used anymore to load the data once and for all)
                             if (active) {
                                 setSource("SfmGlobalStats.qml", {
-                                    'msfmData': Qt.binding(function() { return msfmDataLoader.item; }),
-                                    'mTracks': Qt.binding(function() { return mtracksLoader.item; }),
+                                    "msfmData": Qt.binding(function() { return msfmDataLoader.item }),
+                                    "mTracks": Qt.binding(function() { return mtracksLoader.item }),
 
                                 })
                             } else {
@@ -920,6 +1265,7 @@ FocusScope {
                             }
                         }
                     }
+
                     Loader {
                         id: featuresOverlay
                         anchors {
@@ -927,13 +1273,15 @@ FocusScope {
                             left: parent.left
                             margins: 2
                         }
-                        active: root.aliceVisionPluginAvailable && displayFeatures.checked && featuresViewerLoader.status === Loader.Ready
+                        active: root.aliceVisionPluginAvailable && displayFeatures.checked &&
+                                featuresViewerLoader.status === Loader.Ready
 
                         sourceComponent: FeaturesInfoOverlay {
-                            featureExtractionNode: _reconstruction.activeNodes.get('FeatureExtraction').node
                             pluginStatus: featuresViewerLoader.status
                             featuresViewer: featuresViewerLoader.item
                             mfeatures: mfeaturesLoader.item
+                            mtracks: mtracksLoader.item
+                            msfmdata: msfmDataLoader.item
                         }
                     }
 
@@ -941,19 +1289,40 @@ FocusScope {
                         id: ldrHdrCalibrationGraph
                         anchors.fill: parent
 
-                        property var activeNode: _reconstruction ? _reconstruction.activeNodes.get('LdrToHdrCalibration').node : null
+                        property var activeNode: _reconstruction ? _reconstruction.activeNodes.get("LdrToHdrCalibration").node : null
                         property var isEnabled: displayLdrHdrCalibrationGraph.checked && activeNode && activeNode.isComputed
-                        // active: isEnabled
-                        // Setting "active" from true to false creates a crash on linux with Qt 5.14.2.
-                        // As a workaround, we clear the CameraResponseGraph with an empty node
-                        // and hide the loader content.
-                        visible: isEnabled
+                        active: isEnabled
+
+                        property var path: activeNode && activeNode.hasAttribute("response") ? activeNode.attribute("response").value : ""
+                        property var vp: _reconstruction ? getViewpoint(_reconstruction.selectedViewId) : null
 
                         sourceComponent: CameraResponseGraph {
-                            ldrHdrCalibrationNode: isEnabled ? activeNode : null
+                            responsePath: Filepath.resolve(path, vp)
                         }
                     }
+
+                    PhongImageViewerToolbar {
+                        id: phongImageViewerToolbar
+
+                        anchors {
+                            bottom: parent.bottom
+                            left: parent.left
+                            margins: 2
+                        }
+                        visible: root.aliceVisionPluginAvailable && phongImageViewerLoader.active
+                    }
+
+                    DirectionalLightPane {
+                        id: directionalLightPane
+                        anchors {
+                            bottom: parent.bottom
+                            right: parent.right
+                            margins: 2
+                        }
+                        visible: root.aliceVisionPluginAvailable && phongImageViewerLoader.active && phongImageViewerToolbar.displayLightController
+                    }
                 }
+
                 FloatingPane {
                     id: bottomToolbar
                     padding: 4
@@ -963,27 +1332,28 @@ FocusScope {
                     RowLayout {
                         anchors.fill: parent
 
-                        // zoom label
+                        // Zoom label
                         MLabel {
-                            text: ((imgContainer.image && (imgContainer.image.status === Image.Ready)) ? imgContainer.scale.toFixed(2) : "1.00") + "x"
+                            text: ((imgContainer.image && (imgContainer.image.imageStatus === Image.Ready)) ? imgContainer.scale.toFixed(2) : "1.00") + "x"
+                            ToolTip.text: "Zoom"
+
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                onClicked: {
-                                    if(mouse.button & Qt.LeftButton) {
+                                onClicked: function(mouse) {
+                                    if (mouse.button & Qt.LeftButton) {
                                         fit()
-                                    }
-                                    else if(mouse.button & Qt.RightButton) {
-                                        var menu = contextMenu.createObject(root);
+                                    } else if (mouse.button & Qt.RightButton) {
+                                        var menu = contextMenu.createObject(root)
                                         var point = mapToItem(root, mouse.x, mouse.y)
-                                        menu.x = point.x;
-                                        menu.y = point.y;
+                                        menu.x = point.x
+                                        menu.y = point.y
                                         menu.open()
                                     }
                                 }
                             }
-                            ToolTip.text: "Zoom"
                         }
+
                         MaterialToolButton {
                             id: displayAlphaBackground
                             ToolTip.text: "Alpha Background"
@@ -992,13 +1362,12 @@ FocusScope {
                             Layout.minimumWidth: 0
                             checkable: true
                         }
-                        MaterialToolButton
-                        {
+
+                        MaterialToolButton {
                             id: displayHDR
                             ToolTip.text: "High-Dynamic-Range Image Viewer"
                             text: MaterialIcons.hdr_on
-                            // larger font but smaller padding,
-                            // so it is visually similar.
+                            // Larger font but smaller padding, so it is visually similar
                             font.pointSize: 20
                             padding: 0
                             Layout.minimumWidth: 0
@@ -1008,28 +1377,29 @@ FocusScope {
                             visible: root.enable8bitViewer
                             onCheckedChanged : {
                                 if (displayLensDistortionViewer.checked && checked) {
-                                    displayLensDistortionViewer.checked = false;
+                                    displayLensDistortionViewer.checked = false
                                 }
                                 root.useFloatImageViewer = !root.useFloatImageViewer
                             }
                         }
+
                         MaterialToolButton {
                             id: displayLensDistortionViewer
-                            property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get('sfmData').node : null
+                            property int numberChanges: 0
+                            property bool previousChecked: false
+                            property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get("sfmData").node : null
                             property bool isComputed: {
-                                if(!activeNode)
-                                    return false;
-                                if(activeNode.isComputed)
-                                {
-                                    return true;
-                                }
-                                if(!activeNode.hasAttribute("input"))
-                                    return false;
-                                var inputAttr = activeNode.attribute("input");
-                                var inputAttrLink = inputAttr.rootLinkParam;
-                                if(!inputAttrLink)
-                                    return false;
-                                return inputAttrLink.node.isComputed;
+                                if (!activeNode)
+                                    return false
+                                if (activeNode.isComputed)
+                                    return true
+                                if (!activeNode.hasAttribute("input"))
+                                    return false
+                                var inputAttr = activeNode.attribute("input")
+                                var inputAttrLink = inputAttr.rootLinkParam
+                                if (!inputAttrLink)
+                                    return false
+                                return inputAttrLink.node.isComputed
                             }
 
                             ToolTip.text: "Lens Distortion Viewer" + (isComputed ? (": " + activeNode.label) : "")
@@ -1042,32 +1412,49 @@ FocusScope {
                             enabled: activeNode && isComputed
                             onCheckedChanged : {
                                 if ((displayHDR.checked || displayPanoramaViewer.checked) && checked) {
-                                    displayHDR.checked = false;
-                                    displayPanoramaViewer.checked = false;
+                                    displayHDR.checked = false
+                                    displayPanoramaViewer.checked = false
                                 } else if (!checked) {
-                                    displayHDR.checked = true;
+                                    displayHDR.checked = true
+                                }
+                            }
+
+                            onActiveNodeChanged: {
+                                numberChanges += 1
+                            }
+
+                            onEnabledChanged: {
+                                if (!enabled) {
+                                    previousChecked = checked
+                                    checked = false
+                                    numberChanges = 0
+                                }
+
+                                if (enabled && (numberChanges == 1) && previousChecked) {
+                                    checked = true
                                 }
                             }
                         }
+
                         MaterialToolButton {
                             id: displayPanoramaViewer
-                            property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get('SfMTransform').node : null
+                            property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get("SfMTransform").node : null
                             property bool isComputed: {
-                                if(!activeNode)
-                                    return false;
-                                if(activeNode.attribute("method").value !== "manual")
-                                    return false;
-                                var inputAttr = activeNode.attribute("input");
-                                if(!inputAttr)
-                                    return false;
-                                var inputAttrLink = inputAttr.rootLinkParam;
-                                if(!inputAttrLink)
-                                    return false;
-                                return inputAttrLink.node.isComputed;
+                                if (!activeNode)
+                                    return false
+                                if (activeNode.attribute("method").value !== "manual")
+                                    return false
+                                var inputAttr = activeNode.attribute("input")
+                                if (!inputAttr)
+                                    return false
+                                var inputAttrLink = inputAttr.rootLinkParam
+                                if (!inputAttrLink)
+                                    return false
+                                return inputAttrLink.node.isComputed
                             }
 
                             ToolTip.text: activeNode ? "Panorama Viewer " + activeNode.label : "Panorama Viewer"
-                            text: MaterialIcons.panorama_sphere
+                            text: MaterialIcons.panorama_photosphere
                             font.pointSize: 16
                             padding: 0
                             Layout.minimumWidth: 0
@@ -1076,37 +1463,41 @@ FocusScope {
                             enabled: activeNode && isComputed
                             onCheckedChanged : {
                                 if (displayLensDistortionViewer.checked && checked) {
-                                    displayLensDistortionViewer.checked = false;
+                                    displayLensDistortionViewer.checked = false
                                 }
                                 if (displayFisheyeCircleLoader.checked && checked) {
-                                    displayFisheyeCircleLoader.checked = false;
+                                    displayFisheyeCircleLoader.checked = false
                                 }
                             }
                             onEnabledChanged : {
                                 if (!enabled) {
-                                    checked = false;
+                                    checked = false
                                 }
                             }
                         }
+
                         MaterialToolButton {
                             id: displayFeatures
                             ToolTip.text: "Display Features"
                             text: MaterialIcons.scatter_plot
                             font.pointSize: 11
                             Layout.minimumWidth: 0
-                            checkable: true
+                            checkable: true && !useExternal
                             checked: false
-                            enabled: root.aliceVisionPluginAvailable && !displayPanoramaViewer.checked
+                            enabled: root.aliceVisionPluginAvailable && !displayPanoramaViewer.checked && !useExternal
                             onEnabledChanged : {
-                                if(enabled == false) checked = false;
+                                if (useExternal)
+                                    return
+                                if (enabled == false)
+                                    checked = false
                             }
                         }
+
                         MaterialToolButton {
                             id: displayFisheyeCircleLoader
-                            property var activeNode: _reconstruction ? _reconstruction.activeNodes.get('PanoramaInit').node : null
+                            property var activeNode: _reconstruction ? _reconstruction.activeNodes.get("PanoramaInit").node : null
                             ToolTip.text: "Display Fisheye Circle: " + (activeNode ? activeNode.label : "No Node")
                             text: MaterialIcons.vignette
-                            // text: MaterialIcons.panorama_fish_eye
                             font.pointSize: 11
                             Layout.minimumWidth: 0
                             checkable: true
@@ -1114,24 +1505,49 @@ FocusScope {
                             enabled: activeNode && activeNode.attribute("useFisheye").value && !displayPanoramaViewer.checked
                             visible: activeNode
                         }
+
                         MaterialToolButton {
-                            id: displayColorCheckerViewerLoader
-                            property var activeNode: _reconstruction ? _reconstruction.activeNodes.get('ColorCheckerDetection').node : null
-                            ToolTip.text: "Display Color Checker: " + (activeNode ? activeNode.label : "No Node")
-                            text: MaterialIcons.view_comfy //view_module grid_on gradient view_comfy border_all
+                            id: displayLightingCircleLoader
+                            property var activeNode: _reconstruction.activeNodes.get("SphereDetection").node
+                            ToolTip.text: "Display Lighting Circle: " + (activeNode ? activeNode.label : "No Node")
+                            text: MaterialIcons.location_searching
                             font.pointSize: 11
                             Layout.minimumWidth: 0
                             checkable: true
-                            enabled: activeNode && activeNode.isComputed && _reconstruction.selectedViewId != -1
+                            checked: false
+                            enabled: activeNode
+                            visible: activeNode
+                        }
+
+                        MaterialToolButton {
+                            id: displayPhongLighting
+                            property var activeNode: _reconstruction.activeNodes.get('PhotometricStereo').node
+                            ToolTip.text: "Display Phong Lighting: " + (activeNode ? activeNode.label : "No Node")
+                            text: MaterialIcons.light_mode
+                            font.pointSize: 11
+                            Layout.minimumWidth: 0
+                            checkable: true
+                            checked: false
+                            enabled: activeNode
+                            visible: activeNode
+                        }
+                        MaterialToolButton {
+                            id: displayColorCheckerViewerLoader
+                            property var activeNode: _reconstruction ? _reconstruction.activeNodes.get("ColorCheckerDetection").node : null
+                            ToolTip.text: "Display Color Checker: " + (activeNode ? activeNode.label : "No Node")
+                            text: MaterialIcons.view_comfy
+                            font.pointSize: 11
+                            Layout.minimumWidth: 0
+                            checkable: true
+                            enabled: activeNode && activeNode.isComputed && _reconstruction.selectedViewId !== -1
                             checked: false
                             visible: activeNode
                             onEnabledChanged: {
-                                if(enabled == false)
+                                if (enabled == false)
                                     checked = false
                             }
                             onCheckedChanged: {
-                                if(checked == true)
-                                {
+                                if (checked == true) {
                                     displaySfmDataGlobalStats.checked = false
                                     displaySfmStatsView.checked = false
                                     metadataCB.checked = false
@@ -1153,7 +1569,7 @@ FocusScope {
                             visible: activeNode
 
                             onIsComputedChanged: {
-                                if(!isComputed)
+                                if (!isComputed)
                                     checked = false
                             }
                         }
@@ -1176,7 +1592,7 @@ FocusScope {
                             property var names: ["gallery"]
                             property string name: names[currentIndex]
 
-                            model: names.map(n => (n == "gallery") ? "Image Gallery" : displayedNode.attributes.get(n).label)
+                            model: names.map(n => (n === "gallery") ? "Image Gallery" : displayedNode.attributes.get(n).label)
                             enabled: count > 1
 
                             FontMetrics {
@@ -1185,7 +1601,8 @@ FocusScope {
                             Layout.preferredWidth: model.reduce((acc, label) => Math.max(acc, fontMetrics.boundingRect(label).width), 0) + 3.0 * Qt.application.font.pixelSize
 
                             onNameChanged: {
-                                root.source = getImageFile();
+                                root.source = getImageFile()
+                                root.sequence = getSequence()
                             }
                         }
 
@@ -1201,13 +1618,13 @@ FocusScope {
                                 root.viewIn3D(
                                     root.source,
                                     displayedNode.name + ":" + outputAttribute.name + " " + String(_reconstruction.selectedViewId)
-                                );
+                                )
                             }
                         }
 
                         MaterialToolButton {
                             id: displaySfmStatsView
-                            property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get('sfm').node : null
+                            property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get("sfm").node : null
                             property bool isComputed: activeNode && activeNode.isComputed
 
                             font.family: MaterialIcons.fontFamily
@@ -1223,7 +1640,7 @@ FocusScope {
                             checkable: enabled
                             enabled: activeNode && activeNode.isComputed && _reconstruction.selectedViewId >= 0
                             onCheckedChanged: {
-                                if(checked == true) {
+                                if (checked == true) {
                                     displaySfmDataGlobalStats.checked = false
                                     metadataCB.checked = false
                                     displayColorCheckerViewerLoader.checked = false
@@ -1233,7 +1650,7 @@ FocusScope {
 
                         MaterialToolButton {
                             id: displaySfmDataGlobalStats
-                            property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get('sfm').node : null
+                            property var activeNode: root.aliceVisionPluginAvailable && _reconstruction ? _reconstruction.activeNodes.get("sfm").node : null
                             property bool isComputed: activeNode && activeNode.isComputed
 
                             font.family: MaterialIcons.fontFamily
@@ -1249,13 +1666,14 @@ FocusScope {
                             checkable: enabled
                             enabled: activeNode && activeNode.isComputed
                             onCheckedChanged: {
-                                if(checked == true) {
+                                if (checked == true) {
                                     displaySfmStatsView.checked = false
                                     metadataCB.checked = false
                                     displayColorCheckerViewerLoader.checked = false
                                 }
                             }
                         }
+
                         MaterialToolButton {
                             id: metadataCB
 
@@ -1271,16 +1689,29 @@ FocusScope {
                             flat: true
                             checkable: enabled
                             onCheckedChanged: {
-                                if(checked == true)
-                                {
+                                if (checked == true) {
                                     displaySfmDataGlobalStats.checked = false
                                     displaySfmStatsView.checked = false
                                     displayColorCheckerViewerLoader.checked = false
                                 }
                             }
                         }
-
                     }
+                }
+
+                SequencePlayer {
+                    id: sequencePlayer
+                    anchors.margins: 0
+                    Layout.fillWidth: true
+                    sortedViewIds: {
+                        return (root.enableSequencePlayer && (root.displayedNode && root.displayedNode.hasSequenceOutput)) ?
+                                    root.sequence :
+                                    (_reconstruction && _reconstruction.viewpoints.count > 0) ? buildOrderedSequence("<VIEW_ID>") : []
+                    }
+                    viewer: floatImageViewerLoader.status === Loader.Ready ? floatImageViewerLoader.item : null
+                    visible: root.enableSequencePlayer
+                    enabled: root.enableSequencePlayer
+                    isOutputSequence: root.displayedNode && root.displayedNode.hasSequenceOutput
                 }
             }
         }
@@ -1289,19 +1720,82 @@ FocusScope {
     // Busy indicator
     BusyIndicator {
         anchors.centerIn: parent
-        // running property binding seems broken, only dynamic binding assignment works
+        // Running property binding seems broken, only dynamic binding assignment works
         Component.onCompleted: {
             running = Qt.binding(function() {
                 return (root.usePanoramaViewer === true && imgContainer.image && imgContainer.image.allImagesLoaded === false)
-                || (imgContainer.image && imgContainer.image.status === Image.Loading)
+                       || (imgContainer.image && imgContainer.image.imageStatus === Image.Loading)
             })
         }
-        // disable the visibility when unused to avoid stealing the mouseEvent to the image color picker
+        // Disable the visibility when unused to avoid stealing the mouseEvent to the image color picker
         visible: running
 
         onVisibleChanged: {
             if (panoramaViewerLoader.active)
-                fit();
+                fit()
+        }
+    }
+
+    // Actions for RGBA filters
+    Action {
+        id: rFilterAction
+
+        shortcut: "R"
+        onTriggered: {
+            if (hdrImageToolbar.channelModeValue !== "r") {
+                hdrImageToolbar.channelModeValue = "r"
+            } else {
+                hdrImageToolbar.channelModeValue = "rgba"
+            }
+        }
+    }
+
+    Action {
+        id: gFilterAction
+
+        shortcut: "G"
+        onTriggered: {
+            if (hdrImageToolbar.channelModeValue !== "g") {
+                hdrImageToolbar.channelModeValue = "g"
+            } else {
+                hdrImageToolbar.channelModeValue = "rgba"
+            }
+        }
+    }
+
+    Action {
+        id: bFilterAction
+
+        shortcut: "B"
+        onTriggered: {
+            if (hdrImageToolbar.channelModeValue !== "b") {
+                hdrImageToolbar.channelModeValue = "b"
+            } else {
+                hdrImageToolbar.channelModeValue = "rgba"
+            }
+        }
+    }
+
+    Action {
+        id: aFilterAction
+
+        shortcut: "A"
+        onTriggered: {
+            if (hdrImageToolbar.channelModeValue !== "a") {
+                hdrImageToolbar.channelModeValue = "a"
+            } else {
+                hdrImageToolbar.channelModeValue = "rgba"
+            }
+        }
+    }
+
+    // Actions for Metadata overlay
+    Action {
+        id: metadataAction
+
+        shortcut: "I"
+        onTriggered: {
+            metadataCB.checked = !metadataCB.checked
         }
     }
 }

@@ -1,15 +1,15 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
-import QtGraphicalEffects 1.0
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Qt5Compat.GraphicalEffects
 
-import Utils 1.0
 import MaterialIcons 2.2
-
+import Utils 1.0
 
 /**
  * Visual representation of a Graph Node.
  */
+
 Item {
     id: root
 
@@ -28,7 +28,7 @@ Item {
     property point position: Qt.point(x, y)
     /// Styling
     property color shadowColor: "#cc000000"
-    readonly property color defaultColor: isCompatibilityNode ? "#444" : activePalette.base
+    readonly property color defaultColor: isCompatibilityNode ? "#444" : !node.isComputable ? "#BA3D69" : activePalette.base
     property color baseColor: defaultColor
 
     property point mousePosition: Qt.point(mouseArea.mouseX, mouseArea.mouseY)
@@ -40,6 +40,8 @@ Item {
 
     // Mouse interaction related signals
     signal pressed(var mouse)
+    signal released(var mouse)
+    signal clicked(var mouse)
     signal doubleClicked(var mouse)
     signal moved(var position)
     signal entered()
@@ -67,7 +69,7 @@ Item {
     Connections {
         target: root.node
         // update x,y when node position changes
-        onPositionChanged: {
+        function onPositionChanged() {
             root.x = root.node.x
             root.y = root.node.y
         }
@@ -96,24 +98,16 @@ Item {
         return str
     }
 
-    // Whether an attribute can be displayed as an attribute pin on the node
-    function isFileAttributeBaseType(attribute) {
-        // ATM, only File attributes are meant to be connected
-        // TODO: review this if we want to connect something else
-        return attribute.type == "File"
-               || (attribute.type == "ListAttribute" && attribute.desc.elementDesc.type == "File")
-    }
-
     // Used to generate list of node's label sharing the same uid
     function generateDuplicateList() {
         let str = "<b>Shares internal folder (data) with:</b>"
-        for(let i = 0; i < node.duplicates.count; ++i) {
-            if(i % 5 === 0)
+        for (let i = 0; i < node.duplicates.count; ++i) {
+            if (i % 5 === 0)
                 str += "<br>"
 
             const currentNode = node.duplicates.at(i)
 
-            if(i === node.duplicates.count - 1) {
+            if (i === node.duplicates.count - 1) {
                 str += currentNode.nameToLabel(currentNode.name)
                 return str
             }
@@ -129,18 +123,19 @@ Item {
         width: parent.width
         height: body.height
         drag.target: root
-        // small drag threshold to avoid moving the node by mistake
+        // Small drag threshold to avoid moving the node by mistake
         drag.threshold: 2
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
-        onPressed: root.pressed(mouse)
-        onDoubleClicked: root.doubleClicked(mouse)
+        onPressed: (mouse) => root.pressed(mouse)
+        onReleased: (mouse) => root.released(mouse)
+        onClicked: (mouse) => root.clicked(mouse)
+        onDoubleClicked: (mouse) => root.doubleClicked(mouse)
         onEntered: root.entered()
         onExited: root.exited()
         drag.onActiveChanged: {
-            if(!drag.active)
-            {
-                root.moved(Qt.point(root.x, root.y));
+            if (!drag.active) {
+                root.moved(Qt.point(root.x, root.y))
             }
         }
 
@@ -150,9 +145,21 @@ Item {
         Rectangle {
             anchors.fill: nodeContent
             anchors.margins: -border.width
-            visible: root.mainSelected || root.hovered
-            border.width: 2.5
-            border.color: root.mainSelected ? activePalette.highlight : Qt.darker(activePalette.highlight, 1.5)
+            visible: root.mainSelected || root.hovered || root.selected
+            border.width: {
+                if(root.mainSelected)
+                    return 3
+                if(root.selected)
+                    return 2.5
+                return 2
+            }
+            border.color: {
+                if(root.mainSelected)
+                    return activePalette.highlight
+                if(root.selected)
+                    return Qt.darker(activePalette.highlight, 1.2)
+                return Qt.lighter(activePalette.base, 3)
+            }
             opacity: 0.9
             radius: background.radius + border.width
             color: "transparent"
@@ -184,7 +191,7 @@ Item {
                     id: header
                     width: parent.width
                     height: headerLayout.height
-                    color: root.mainSelected ? activePalette.highlight : root.selected ? Qt.darker(activePalette.highlight, 1.1): root.baseColor
+                    color: root.baseColor
                     radius: background.radius
 
                     // Fill header's bottom radius
@@ -244,15 +251,23 @@ Item {
                                 palette.text: Colors.sysPalette.text
                                 ToolTip.text: toolTipText
 
-                                onPressed: { offsetReleased.running = false; toolTipText = visible ? generateDuplicateList() : "" }
-                                onReleased: { toolTipText = "" ; offsetReleased.running = true }
+                                onPressed: {
+                                    offsetReleased.running = false
+                                    toolTipText = visible ? generateDuplicateList() : ""
+                                }
+                                onReleased: {
+                                    toolTipText = ""
+                                    offsetReleased.running = true
+                                }
                                 onCanceled: released()
 
                                 // Used for a better user experience with the button
                                 // Avoid to change the text too quickly
                                 Timer {
                                     id: offsetReleased
-                                    interval: 750; running: false; repeat: false
+                                    interval: 750
+                                    running: false
+                                    repeat: false
                                     onTriggered: parent.toolTipText = visible ? parent.baseText : ""
                                 }
                             }
@@ -305,12 +320,51 @@ Item {
                                     hoverEnabled: true
                                 }
                             }
+
+                            MaterialLabel {
+                                id: nodeImageOutput
+                                visible: (node.hasImageOutput || node.has3DOutput || node.hasSequenceOutput)
+                                text: MaterialIcons.visibility
+                                padding: 2
+                                font.pointSize: 7
+                                property bool displayable: ((["SUCCESS"].includes(node.globalStatus) && node.chunks.count > 0) || !node.isComputable)
+                                color: displayable ? palette.text : Qt.darker(palette.text, 1.8)
+
+                                ToolTip {
+                                    id: nodeImageOutputTooltip
+                                    parent: header
+                                    visible: nodeImageOutputMA.containsMouse && nodeImageOutput.visible
+                                    text: {
+                                        if ((node.hasImageOutput || node.hasSequenceOutput) && !node.has3DOutput)
+                                            return nodeImageOutput.displayable ? "Double-click on this node to load its outputs in the Image Viewer." : "This node has image outputs."
+                                        else if (node.has3DOutput && !node.hasImageOutput && !node.hasSequenceOutput)
+                                            return nodeImageOutput.displayable ? "Double-click on this node to load its outputs in the 3D Viewer." : "This node has 3D outputs."
+                                        else  // Handle case where a node might have both 2D and 3D outputs
+                                            return nodeImageOutput.displayable ? "Double-click on this node to load its outputs in the Image or 3D Viewer." : "This node has image and 3D outputs."
+                                    }
+                                    implicitWidth: 500
+                                    delay: 300
+
+                                    // Relative position for the tooltip to ensure we won't get stuck in a case where it starts appearing over the mouse's
+                                    // position because it's a bit long and cutting off the hovering of the mouse area (which leads to the tooltip beginning
+                                    // to appear and immediately disappearing, over and over again)
+                                    x: implicitWidth / 2.5
+                                }
+
+                                MouseArea {
+                                    // If the node header is hovered, comments may be displayed
+                                    id: nodeImageOutputMA
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                }
+                            }
                         }
                     }
                 }
 
                 // Node Chunks
                NodeChunks {
+                   visible: node.isComputable
                    defaultColor: Colors.sysPalette.mid
                    implicitHeight: 3
                    width: parent.width
@@ -343,12 +397,14 @@ Item {
                             id: outputs
                             width: parent.width
                             spacing: 3
+
                             Repeater {
                                 model: node ? node.attributes : undefined
 
                                 delegate: Loader {
                                     id: outputLoader
-                                    active: object.isOutput && isFileAttributeBaseType(object)
+                                    active: Boolean(object.isOutput && object.desc.visible)
+                                    visible: Boolean(object.enabled || object.hasOutputConnections)
                                     anchors.right: parent.right
                                     width: outputs.width
 
@@ -360,11 +416,13 @@ Item {
                                         property real globalX: root.x + nodeAttributes.x + outputs.x + outputLoader.x + outPin.x
                                         property real globalY: root.y + nodeAttributes.y + outputs.y + outputLoader.y + outPin.y
 
-                                        onPressed: root.pressed(mouse)
-                                        onEdgeAboutToBeRemoved: root.edgeAboutToBeRemoved(input)
+                                        onPressed: function(mouse) { root.pressed(mouse) }
+                                        onEdgeAboutToBeRemoved: function(input) { root.edgeAboutToBeRemoved(input) }
 
-                                        Component.onCompleted: attributePinCreated(object, outPin)
+                                        Component.onCompleted: attributePinCreated(attribute, outPin)
+                                        onChildPinCreated: attributePinCreated(childAttribute, outPin)
                                         Component.onDestruction: attributePinDeleted(attribute, outPin)
+                                        onChildPinDeleted: attributePinDeleted(childAttribute, outPin)
                                     }
                                 }
                             }
@@ -377,9 +435,11 @@ Item {
 
                             Repeater {
                                 model: node ? node.attributes : undefined
+
                                 delegate: Loader {
                                     id: inputLoader
-                                    active: !object.isOutput && isFileAttributeBaseType(object)
+                                    active: !object.isOutput && object.desc.exposed && object.desc.visible
+                                    visible: Boolean(object.enabled)
                                     width: inputs.width
 
                                     sourceComponent: AttributePin {
@@ -390,13 +450,13 @@ Item {
                                         property real globalX: root.x + nodeAttributes.x + inputs.x + inputLoader.x + inPin.x
                                         property real globalY: root.y + nodeAttributes.y + inputs.y + inputLoader.y + inPin.y
 
-                                        readOnly: root.readOnly || object.isReadOnly
+                                        readOnly: Boolean(root.readOnly || object.isReadOnly)
                                         Component.onCompleted: attributePinCreated(attribute, inPin)
                                         Component.onDestruction: attributePinDeleted(attribute, inPin)
-                                        onPressed: root.pressed(mouse)
-                                        onEdgeAboutToBeRemoved: root.edgeAboutToBeRemoved(input)
-                                        onChildPinCreated: attributePinCreated(childAttribute, inPin)
-                                        onChildPinDeleted: attributePinDeleted(childAttribute, inPin)
+                                        onPressed: function(mouse) { root.pressed(mouse) }
+                                        onEdgeAboutToBeRemoved: function(input) { root.edgeAboutToBeRemoved(input) }
+                                        onChildPinCreated: function(childAttribute, inPin) { attributePinCreated(childAttribute, inPin) }
+                                        onChildPinDeleted: function(childAttribute, inPin) { attributePinDeleted(childAttribute, inPin) }
                                     }
                                 }
                             }
@@ -438,27 +498,28 @@ Item {
                                     model: node ? node.attributes : undefined
                                     delegate: Loader {
                                         id: paramLoader
-                                        active: !object.isOutput && !isFileAttributeBaseType(object)
-                                        property bool isFullyActive: (m.displayParams || object.isLink || object.hasOutputConnections)
+                                        active: !object.isOutput && !object.desc.exposed && object.desc.visible
+                                        visible: Boolean(object.enabled || object.isLinkNested || object.hasOutputConnections)
+                                        property bool isFullyActive: Boolean(m.displayParams || object.isLinkNested || object.hasOutputConnections)
                                         width: parent.width
 
                                         sourceComponent: AttributePin {
-                                            id: inPin
+                                            id: inParamsPin
                                             nodeItem: root
-                                            property real globalX: root.x + nodeAttributes.x + inputParamsRect.x + paramLoader.x + inPin.x
-                                            property real globalY: root.y + nodeAttributes.y + inputParamsRect.y + paramLoader.y + inPin.y
+                                            property real globalX: root.x + nodeAttributes.x + inputParamsRect.x + paramLoader.x + inParamsPin.x
+                                            property real globalY: root.y + nodeAttributes.y + inputParamsRect.y + paramLoader.y + inParamsPin.y
 
                                             height: isFullyActive ? childrenRect.height : 0
                                             Behavior on height { PropertyAnimation {easing.type: Easing.Linear} }
                                             visible: (height == childrenRect.height)
                                             attribute: object
-                                            readOnly: root.readOnly || object.isReadOnly
-                                            Component.onCompleted: attributePinCreated(attribute, inPin)
-                                            Component.onDestruction: attributePinDeleted(attribute, inPin)
-                                            onPressed: root.pressed(mouse)
-                                            onEdgeAboutToBeRemoved: root.edgeAboutToBeRemoved(input)
-                                            onChildPinCreated: attributePinCreated(childAttribute, inPin)
-                                            onChildPinDeleted: attributePinDeleted(childAttribute, inPin)
+                                            readOnly: Boolean(root.readOnly || object.isReadOnly)
+                                            Component.onCompleted: attributePinCreated(attribute, inParamsPin)
+                                            Component.onDestruction: attributePinDeleted(attribute, inParamsPin)
+                                            onPressed: function(mouse) { root.pressed(mouse) }
+                                            onEdgeAboutToBeRemoved: function(input) { root.edgeAboutToBeRemoved(input) }
+                                            onChildPinCreated: function(childAttribute, inParamsPin) { attributePinCreated(childAttribute, inParamsPin) }
+                                            onChildPinDeleted: function(childAttribute, inParamsPin) { attributePinDeleted(childAttribute, inParamsPin) }
                                         }
                                     }
                                 }
@@ -484,4 +545,3 @@ Item {
         }
     }
 }
-

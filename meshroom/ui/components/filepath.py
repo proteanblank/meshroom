@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # coding:utf-8
-from PySide2.QtCore import QUrl, QFileInfo
-from PySide2.QtCore import QObject, Slot
+from PySide6.QtCore import QUrl, QFileInfo
+from PySide6.QtCore import QObject, Slot
 
 import os
+import glob
+import pyseq
 
 
 class FilepathHelper(QObject):
@@ -57,6 +59,13 @@ class FilepathHelper(QObject):
 
     @Slot(str, result=bool)
     @Slot(QUrl, result=bool)
+    def accessible(self, path):
+        """ Returns whether a path is accessible for the user """
+        path = self.asStr(path)
+        return os.path.isdir(self.asStr(path)) and os.access(path, os.R_OK) and os.access(path, os.W_OK)
+
+    @Slot(str, result=bool)
+    @Slot(QUrl, result=bool)
     def isFile(self, path):
         """ Test whether a path is a regular file """
         return os.path.isfile(self.asStr(path))
@@ -98,3 +107,74 @@ class FilepathHelper(QObject):
     def fileSizeMB(self, path):
         """ Returns the file size in MB. """
         return QFileInfo(self.asStr(path)).size() / (1024*1024)
+
+    @Slot(str, QObject, result=str)
+    def resolve(self, path, vp):
+        # Resolve dynamic path that depends on viewpoint
+
+        replacements = {}
+        if vp == None:
+            replacements = FilepathHelper.getFilenamesFromFolder(FilepathHelper, FilepathHelper.dirname(FilepathHelper, path), FilepathHelper.extension(FilepathHelper, path))
+            resolved = [path for i in range(len(replacements))]
+            for key in replacements:
+                for i in range(len(resolved)):
+                    resolved[i] = resolved[i].replace("<FRAMEID>", replacements[i])
+            return resolved
+        else:
+
+            vpPath = vp.childAttribute("path").value
+            filename = FilepathHelper.basename(FilepathHelper, vpPath)
+            replacements = {
+                "<VIEW_ID>": str(vp.childAttribute("viewId").value),
+                "<INTRINSIC_ID>": str(vp.childAttribute("intrinsicId").value),
+                "<POSE_ID>": str(vp.childAttribute("poseId").value),
+                "<PATH>": vpPath,
+                "<FILENAME>": filename,
+                "<FILESTEM>": FilepathHelper.removeExtension(FilepathHelper, filename),
+                "<EXTENSION>": FilepathHelper.extension(FilepathHelper, filename),
+            }
+
+        resolved = path
+        for key in replacements:
+            resolved = resolved.replace(key, replacements[key])
+
+        return resolved
+    
+    @Slot(str, result="QVariantList")
+    @Slot(str, str, result="QVariantList")
+    def getFilenamesFromFolder(self, folderPath: str, extension: str = None):
+        """
+        Get all filenames from a folder with a specific extension.
+
+        :param folderPath: Path to the folder.
+        :param extension: Extension of the files to get.
+        :return: List of filenames.
+        """
+        if extension is None:
+            extension = ".*"
+        return [self.basename(f) for f in glob.glob(os.path.join(folderPath, f"*{extension}")) if os.path.isfile(f)]
+
+    @Slot(str, bool, result="QVariantList")
+    def resolveSequence(self, path, includesSeqMissingFiles):
+        """
+        Get id of each file in the sequence.
+        """
+        # use of pyseq to get the sequences
+        seqs = pyseq.get_sequences(self.asStr(path))
+
+        frameRanges = [[seq.start(), seq.end()] for seq in seqs]
+
+        # create the resolved path for each sequence
+        if includesSeqMissingFiles:
+            resolved = []
+            for seq in seqs:
+                if not seq.frames():
+                    # In case of a single frame, pyseq does not exctract a frameNumber
+                    s = [fileItem.path for fileItem in seq]
+                else:
+                    # Create all frames between start and end, even for missing files
+                    s = [seq.format("%D%h%p%t") % frameNumber for frameNumber in range(seq.start(), seq.end() + 1)]
+                resolved.append(s)
+        else:
+            resolved = [[fileItem.path for fileItem in seq] for seq in seqs]
+        return frameRanges, resolved

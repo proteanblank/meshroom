@@ -1,7 +1,7 @@
-import QtQuick 2.11
-import QtQuick.Controls 2.0
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
 import Controls 1.0
 
 FloatingPane {
@@ -13,15 +13,15 @@ FloatingPane {
     property real gainDefaultValue: 1.0
     property real gammaDefaultValue: 1.0
 
-    function resetDefaultValues(){
-        gainCtrl.value = root.gainDefaultValue;
-        gammaCtrl.value = root.gammaDefaultValue;
+    function resetDefaultValues() {
+        gainCtrl.value = root.gainDefaultValue
+        gammaCtrl.value = root.gammaDefaultValue
     }
 
     property real slidersPowerValue: 4.0
     property real gainValue: Math.pow(gainCtrl.value, slidersPowerValue)
     property real gammaValue: Math.pow(gammaCtrl.value, slidersPowerValue)
-    property string channelModeValue: channelsCtrl.value
+    property alias channelModeValue: channelsCtrl.value
     property variant colorRGBA: null
 
     property bool colorPickerVisible: true
@@ -30,19 +30,18 @@ FloatingPane {
 
     DoubleValidator {
         id: doubleValidator
-        locale: 'C' // use '.' decimal separator disregarding of the system locale
+        locale: 'C'  // Use '.' decimal separator disregarding of the system locale
     }
 
     RowLayout {
         id: toolLayout
-        // anchors.verticalCenter: parent
         anchors.fill: parent
 
-        // channel mode
+        // Channel mode
         ComboBox {
             id: channelsCtrl
 
-            // set min size to 4 characters + one margin for the combobox
+            // Set min size to 4 characters + one margin for the combobox
             Layout.minimumWidth: 5.0 * Qt.application.font.pixelSize
             Layout.preferredWidth: Layout.minimumWidth
             flat: true
@@ -50,10 +49,14 @@ FloatingPane {
             property var channels: ["rgba", "rgb", "r", "g", "b","a"]
             property string value: channels[currentIndex]
 
+            onValueChanged: {
+                currentIndex = channels.indexOf(value)
+            }
+
             model: channels
         }
 
-        // gain slider
+        // Gain slider
         RowLayout {
             spacing: 5
 
@@ -65,7 +68,7 @@ FloatingPane {
                 ToolTip.text: "Reset Gain"
 
                 onClicked: {
-                    gainCtrl.value = gainDefaultValue;
+                    gainCtrl.value = gainDefaultValue
                 }
             }
             TextField {
@@ -80,7 +83,7 @@ FloatingPane {
                 selectByMouse: true
                 validator: doubleValidator
                 onAccepted: {
-                    gainCtrl.value = Math.pow(Number(gainLabel.text), 1.0/slidersPowerValue)
+                    gainCtrl.value = Math.pow(Number(gainLabel.text), 1.0 / slidersPowerValue)
                 }
             }
             Slider {
@@ -93,7 +96,7 @@ FloatingPane {
             }
         }
 
-        // gamma slider
+        // Gamma slider
         RowLayout {
             spacing: 5
 
@@ -120,7 +123,7 @@ FloatingPane {
                 selectByMouse: true
                 validator: doubleValidator
                 onAccepted: {
-                    gammaCtrl.value = Math.pow(Number(gammaLabel.text), 1.0/slidersPowerValue)
+                    gammaCtrl.value = Math.pow(Number(gammaLabel.text), 1.0 / slidersPowerValue)
                 }
             }
             Slider {
@@ -148,7 +151,7 @@ FloatingPane {
             TextField {
                 id: red
                 property real value: root.colorRGBA ? root.colorRGBA.x : 0.0
-                property real value_gamma: Math.pow(value, 1.0/2.2)
+                property real value_gamma: Math.pow(value, 1.0 / 2.2)
                 text: root.colorRGBA ? value.toFixed(6) : "--"
 
                 Layout.preferredWidth: textMetrics_colorValue.width
@@ -192,7 +195,7 @@ FloatingPane {
             TextField {
                 id: blue
                 property real value: root.colorRGBA ? root.colorRGBA.z : 0.0
-                property real value_gamma: Math.pow(value, 1.0/2.2)
+                property real value_gamma: Math.pow(value, 1.0 / 2.2)
                 text: root.colorRGBA ? value.toFixed(6) : "--"
                 
                 Layout.preferredWidth: textMetrics_colorValue.width
@@ -214,7 +217,7 @@ FloatingPane {
             TextField {
                 id: alpha
                 property real value: root.colorRGBA ? root.colorRGBA.w : 0.0
-                property real value_gamma: Math.pow(value, 1.0/2.2)
+                property real value_gamma: Math.pow(value, 1.0 / 2.2)
                 text: root.colorRGBA ? value.toFixed(6) : "--"
                 
                 Layout.preferredWidth: textMetrics_colorValue.width
@@ -238,7 +241,7 @@ FloatingPane {
     TextMetrics {
         id: textMetrics_colorValue
         font: red.font
-        text: "1.2345" // use one more than expected to get the correct value (probably needed due to TextField margin)
+        text: "1.2345"  // Use one more than expected to get the correct value (probably needed due to TextField margin)
     }
     TextMetrics {
         id: textMetrics_gainValue

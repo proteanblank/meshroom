@@ -1,8 +1,6 @@
-import QtQuick 2.9
-import QtQuick.Layouts 1.3
-import QtQuick.Controls 2.2
-import MaterialIcons 2.2
-import Utils 1.0
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
 
 RowLayout {
     id: root
@@ -48,13 +46,13 @@ RowLayout {
                 sourceComponent: {
                     if (!attribute)
                         return undefined
-                    switch (attribute.type)
-                    {
-                       case "ChoiceParam": return choice_component
-                       case "IntParam": return int_component
-                       case "FloatParam": return float_component
-                       case "BoolParam": return bool_component
-                       case "StringParam": return textField_component
+                    switch (attribute.type) {
+                       case "ChoiceParam": return choiceComponent
+                       case "IntParam": return intComponent
+                       case "FloatParam": return floatComponent
+                       case "BoolParam": return boolComponent
+                       case "StringParam": return textFieldComponent
+                       case "File": return textFieldComponent
                        default: return undefined
                     }
                 }
@@ -63,18 +61,18 @@ RowLayout {
     }
 
     Component {
-        id: textField_component
+        id: textFieldComponent
         TextInput {
             text: attribute.value
             width: intrinsicModel.columnWidths[columnIndex]
             horizontalAlignment: TextInput.AlignRight
             readOnly: root.readOnly
-            color: 'white'
+            color: palette.text
 
             padding: 12
 
             selectByMouse: true
-            selectionColor: 'white'
+            selectionColor: palette.text
             selectedTextColor: Qt.darker(palette.window, 1.1)
 
             onEditingFinished: _reconstruction.setAttribute(attribute, text)
@@ -82,26 +80,26 @@ RowLayout {
                 _reconstruction.setAttribute(attribute, text)
             }
             Component.onDestruction: {
-                if(activeFocus)
+                if (activeFocus)
                     _reconstruction.setAttribute(attribute, text)
             }
         }
     }
 
     Component {
-        id: int_component
+        id: intComponent
 
         TextInput {
             text: model.display.value
             width: intrinsicModel.columnWidths[columnIndex]
             horizontalAlignment: TextInput.AlignRight
-            color: 'white'
+            color: palette.text
             readOnly: root.readOnly
 
             padding: 12
 
             selectByMouse: true
-            selectionColor: 'white'
+            selectionColor: palette.text
             selectedTextColor: Qt.darker(palette.window, 1.1)
 
             IntValidator {
@@ -115,17 +113,17 @@ RowLayout {
                 _reconstruction.setAttribute(attribute, Number(text))
             }
             Component.onDestruction: {
-                if(activeFocus)
+                if (activeFocus)
                     _reconstruction.setAttribute(attribute, Number(text))
             }
         }
     }
 
     Component {
-        id: choice_component
+        id: choiceComponent
         ComboBox {
             id: combo
-            model: attribute.desc.values
+            model: attribute.desc !== undefined ? attribute.desc.values : undefined
             width: intrinsicModel.columnWidths[columnIndex]
             enabled: !root.readOnly
 
@@ -141,13 +139,13 @@ RowLayout {
 
             Connections {
                 target: attribute
-                onValueChanged: combo.currentIndex = combo.find(attribute.value)
+                function onValueChanged() { combo.currentIndex = combo.find(attribute.value) }
             }
         }
     }
 
     Component {
-        id: bool_component
+        id: boolComponent
         CheckBox {
             checked: attribute ? attribute.value : false
             padding: 12
@@ -157,7 +155,7 @@ RowLayout {
     }
 
     Component {
-        id: float_component
+        id: floatComponent
         TextInput {
             readonly property real formattedValue: attribute.value.toFixed(2)
             property string displayValue: String(formattedValue)
@@ -166,23 +164,23 @@ RowLayout {
             width: intrinsicModel.columnWidths[columnIndex]
             horizontalAlignment: TextInput.AlignRight
 
-            color: 'white'
+            color: palette.text
             padding: 12
 
             selectByMouse: true
-            selectionColor: 'white'
+            selectionColor: palette.text
             selectedTextColor: Qt.darker(palette.window, 1.1)
 
             readOnly: root.readOnly
             enabled: !readOnly
 
-            clip: true;
+            clip: true
 
             autoScroll: activeFocus
 
-            //Use this function to ensure the left part is visible
-            //while keeping the trick for formatting the text
-            //Timing issues otherwise
+            // Use this function to ensure the left part is visible
+            // while keeping the trick for formatting the text
+            // Timing issues otherwise
             onActiveFocusChanged: {
                 if (activeFocus)
                     text = String(attribute.value)
@@ -193,7 +191,7 @@ RowLayout {
 
             DoubleValidator {
                 id: doubleValidator
-                locale: 'C'  // use '.' decimal separator disregarding the system locale
+                locale: 'C'  // Use '.' decimal separator disregarding the system locale
             }
 
             validator: doubleValidator
@@ -203,10 +201,9 @@ RowLayout {
                 _reconstruction.setAttribute(attribute, Number(text))
             }
             Component.onDestruction: {
-                if(activeFocus)
+                if (activeFocus)
                     _reconstruction.setAttribute(attribute, Number(text))
             }
         }
     }
-
 }

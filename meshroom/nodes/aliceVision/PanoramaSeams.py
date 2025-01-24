@@ -4,6 +4,7 @@ import json
 import os
 
 from meshroom.core import desc
+from meshroom.core.utils import VERBOSE_LEVEL
 
 
 class PanoramaSeams(desc.AVCommandLineNode):
@@ -19,59 +20,51 @@ Estimate the seams lines between the inputs to provide an optimal compositing in
 
     inputs = [
         desc.File(
-            name='input',
-            label='Input SfMData',
-            description="Input SfMData.",
-            value='',
-            uid=[0],
+            name="input",
+            label="Input SfMData",
+            description="Input SfMData file.",
+            value="",
         ),
         desc.File(
-            name='warpingFolder',
-            label='Warping Folder',
-            description="Panorama Warping results",
-            value='',
-            uid=[0],
+            name="warpingFolder",
+            label="Warping Folder",
+            description="Panorama warping results.",
+            value="",
         ),
         desc.IntParam(
-            name='maxWidth',
-            label='Max Resolution',
-            description='Maximal resolution for the panorama seams estimation.',
+            name="maxWidth",
+            label="Max Resolution",
+            description="Maximal resolution for the panorama seams estimation.",
             value=5000,
             range=(0, 100000, 1),
-            uid=[0],
         ),
         desc.BoolParam(
-            name='useGraphCut',
-            label='Use Smart Seams',
-            description='Use a graphcut algorithm to optimize seams for better transitions between images.',
+            name="useGraphCut",
+            label="Use Smart Seams",
+            description="Use a graphcut algorithm to optimize seams for better transitions between images.",
             value=True,
-            uid=[0],
         ),
         desc.ChoiceParam(
-            name='verboseLevel',
-            label='Verbose Level',
-            description='Verbosity level (fatal, error, warning, info, debug, trace).',
-            value='info',
-            values=['fatal', 'error', 'warning', 'info', 'debug', 'trace'],
-            exclusive=True,
-            uid=[],
-        )
+            name="verboseLevel",
+            label="Verbose Level",
+            description="Verbosity level (fatal, error, warning, info, debug, trace).",
+            values=VERBOSE_LEVEL,
+            value="info",
+        ),
     ]
 
     outputs = [
         desc.File(
-            name='output',
-            label='Labels',
-            description='',
-            semantic='image',
-            value=desc.Node.internalFolder + 'labels.exr',
-            uid=[],
+            name="output",
+            label="Labels",
+            description="",
+            semantic="image",
+            value=desc.Node.internalFolder + "labels.exr",
         ),
         desc.File(
-            name='outputSfm',
-            label='Output SfMData File',
-            description='Path to the output sfmdata file',
-            value=desc.Node.internalFolder + 'panorama.sfm',
-            uid=[],
-        )
+            name="outputSfm",
+            label="Output SfMData File",
+            description="Path to the output SfMData file.",
+            value=desc.Node.internalFolder + "panorama.sfm",
+        ),
     ]

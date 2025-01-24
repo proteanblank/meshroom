@@ -1,21 +1,19 @@
-import QtQuick 2.7
-import QtQuick.Controls 2.3
-import QtQuick.Controls 1.4 as Controls1 // For SplitView
-import QtQuick.Layouts 1.3
-import Qt.labs.platform 1.0 as Platform
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+import Controls 1.0
+import MaterialIcons 2.2
 import ImageGallery 1.0
 import Viewer 1.0
 import Viewer3D 1.0
-import MaterialIcons 2.2
-import Controls 1.0
-import Utils 1.0
-
 
 /**
  * WorkspaceView is an aggregation of Meshroom's main modules.
  *
  * It contains an ImageGallery, a 2D and a 3D viewer to manipulate and visualize reconstruction data.
  */
+
 Item {
     id: root
 
@@ -26,77 +24,90 @@ Item {
     readonly property Viewer2D viewer2D: viewer2D
     readonly property alias imageGallery: imageGallery
 
-    implicitWidth: 300
-    implicitHeight: 400
-
+    // Use settings instead of visible property as property changes are not propagated
+    visible: settingsUILayout.showImageGallery || settingsUILayout.showImageViewer || settingsUILayout.showViewer3D || settingsUILayout.showLiveReconstruction
 
     // Load a 3D media file in the 3D viewer
     function load3DMedia(filepath, label = undefined) {
-        if(panel3dViewerLoader.active) {
-            panel3dViewerLoader.item.viewer3D.load(filepath, label);
+        if (panel3dViewerLoader.active) {
+            panel3dViewerLoader.item.viewer3D.load(filepath, label)
         }
     }
 
     Connections {
         target: reconstruction
-        onGraphChanged: {
-            if(panel3dViewerLoader.active) {
+        function onGraphChanged() {
+            if (panel3dViewerLoader.active) {
                 panel3dViewerLoader.item.viewer3D.clear()
             }
         }
-        onSfmChanged: viewSfM()
-        onSfmReportChanged: viewSfM()
+        function onSfmChanged() { viewSfM() }
+        function onSfmReportChanged() { viewSfM() }
     }
     Component.onCompleted: viewSfM()
 
     // Load reconstruction's current SfM file
     function viewSfM() {
-        var activeNode = _reconstruction.activeNodes ? _reconstruction.activeNodes.get('sfm').node : null;
-        if(!activeNode)
-            return;
-        if(panel3dViewerLoader.active) {
-            panel3dViewerLoader.item.viewer3D.view(activeNode.attribute('output'));
+        var activeNode = _reconstruction.activeNodes ? _reconstruction.activeNodes.get('sfm').node : null
+        if (!activeNode)
+            return
+        if (panel3dViewerLoader.active) {
+            panel3dViewerLoader.item.viewer3D.view(activeNode.attribute('output'))
         }
     }
 
     SystemPalette { id: activePalette }
 
-    Controls1.SplitView {
+    MSplitView {
+        id: mainSplitView
         anchors.fill: parent
+        orientation: Qt.Horizontal
 
-        Controls1.SplitView {
+        MSplitView {
+            id: leftSplitView
+            visible: settingsUILayout.showImageGallery || settingsUILayout.showLiveReconstruction
             orientation: Qt.Vertical
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            implicitWidth: Math.round(parent.width * 0.2)
-            Layout.minimumWidth: imageGallery.defaultCellSize
+            SplitView.preferredWidth: imageGallery.defaultCellSize * 2 + 20
+            SplitView.minimumWidth: imageGallery.defaultCellSize
 
             ImageGallery {
                 id: imageGallery
-                Layout.fillHeight: true
+                visible: settingsUILayout.showImageGallery
+                SplitView.fillHeight: true
                 readOnly: root.readOnly
                 cameraInits: root.cameraInits
                 cameraInit: reconstruction ? reconstruction.cameraInit : null
                 tempCameraInit: reconstruction ? reconstruction.tempCameraInit : null
                 cameraInitIndex: reconstruction ? reconstruction.cameraInitIndex : -1
-                onRemoveImageRequest: reconstruction.removeAttribute(attribute)
-                onFilesDropped: reconstruction.handleFilesDrop(drop, augmentSfm ? null : cameraInit)
+                onRemoveImageRequest: function(attribute) { reconstruction.removeImage(attribute) }
+                onAllViewpointsCleared: reconstruction.selectedViewId = "-1"
+                onFilesDropped: function(drop, augmentSfm) {
+                    if (drop["meshroomScenes"].length == 1) {
+                        ensureSaved(function() {
+                            if (reconstruction.handleFilesUrl(drop, augmentSfm ? null : cameraInit)) {
+                                MeshroomApp.addRecentProjectFile(drop["meshroomScenes"][0])
+                            }
+                        })
+                    } else {
+                        reconstruction.handleFilesUrl(drop, augmentSfm ? null : cameraInit)
+                    }
+                }
             }
             LiveSfmView {
-                visible: settings_UILayout.showLiveReconstruction
+                id: liveSfmView
+                visible: settingsUILayout.showLiveReconstruction
                 reconstruction: root.reconstruction
-                Layout.fillWidth: true
-                Layout.preferredHeight: childrenRect.height
+                SplitView.preferredHeight: childrenRect.height
             }
         }
 
         Panel {
+            id: imageViewer
             title: "Image Viewer"
-            visible: settings_UILayout.showImageViewer
+            visible: settingsUILayout.showImageViewer
             implicitWidth: Math.round(parent.width * 0.35)
-            Layout.fillHeight: true
-            Layout.fillWidth: true
-            Layout.minimumWidth: 50
+            SplitView.fillWidth: true
+            SplitView.minimumWidth: 50
             loading: viewer2D.loadingModules.length > 0
             loadingText: loading ? "Loading " + viewer2D.loadingModules : ""
 
@@ -145,6 +156,12 @@ Item {
                             checkable: true
                             checked: MeshroomApp.default8bitViewerEnabled
                         }
+                        Action {
+                            id: enableSequencePlayerAction
+                            text: "Enable Sequence Player"
+                            checkable: true
+                            checked: MeshroomApp.defaultSequencePlayerEnabled
+                        }
                     }
                 }
             }
@@ -158,7 +175,7 @@ Item {
                 DropArea {
                     anchors.fill: parent
                     keys: ["text/uri-list"]
-                    onDropped: {
+                    onDropped: function(drop) {
                         viewer2D.loadExternal(drop.urls[0]);
                     }
                 }
@@ -171,16 +188,16 @@ Item {
         }
 
         Item {
-            visible: settings_UILayout.showViewer3D
+            id: viewer3DContainer
+            visible: settingsUILayout.showViewer3D
             Layout.minimumWidth: 20
             Layout.minimumHeight: 80
             Layout.fillHeight: true
-            Layout.fillWidth: true
             implicitWidth: Math.round(parent.width * 0.45)
 
             Loader {
                 id: panel3dViewerLoader
-                active: settings_UILayout.showViewer3D
+                active: settingsUILayout.showViewer3D
                 visible: active
                 anchors.fill: parent
                 sourceComponent: panel3dViewerComponent
@@ -192,24 +209,33 @@ Item {
             Panel {
                 id: panel3dViewer
                 title: "3D Viewer"
-  
+
                 property alias viewer3D: c_viewer3D
 
-                Controls1.SplitView {
+                MSplitView {
                     id: c_viewer3DSplitView
                     anchors.fill: parent
+                    orientation: Qt.Horizontal
                     Viewer3D {
                         id: c_viewer3D
 
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.minimumWidth: 20
+                        SplitView.fillWidth: true
+                        SplitView.minimumWidth: 50
 
                         DropArea {
                             anchors.fill: parent
                             keys: ["text/uri-list"]
-                            onDropped: {
-                                drop.urls.forEach(function(url){ load3DMedia(url); });
+                            onDropped: function(drop) {
+                                drop.urls.forEach(function(url) {
+                                    load3DMedia(url)
+                                })
+                            }
+                        }
+
+                        Connections {
+                            target: viewer2D
+                            function onSync3DSelectedChanged() {
+                                Viewer3DSettings.syncWithPickedViewId = viewer2D.sync3DSelected
                             }
                         }
                         
@@ -231,8 +257,8 @@ Item {
                     // Inspector Panel
                     Inspector3D {
                         id: inspector3d
-                        width: 200
-                        Layout.minimumWidth: 5
+                        SplitView.preferredWidth: 220
+                        SplitView.minimumWidth: 100
 
                         mediaLibrary: c_viewer3D.library
                         camera: c_viewer3D.mainCamera

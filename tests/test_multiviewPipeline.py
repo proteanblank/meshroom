@@ -9,13 +9,18 @@ from meshroom.core.node import Node
 
 
 def test_multiviewPipeline():
+    meshroom.core.initNodes()
+    meshroom.core.initPipelines()
+
     graph1InputImages = ['/non/existing/fileA']
     graph1 = loadGraph(meshroom.core.pipelineTemplates["photogrammetry"])
+    graph1.name = "graph1"
     graph1CameraInit = graph1.node("CameraInit_1")
     graph1CameraInit.viewpoints.extend([{'path': image} for image in graph1InputImages])
 
     graph2InputImages = []  # common to graph2 and graph2b
     graph2 = loadGraph(meshroom.core.pipelineTemplates["photogrammetry"])
+    graph2.name = "graph2"
     graph2CameraInit = graph2.node("CameraInit_1")
     graph2CameraInit.viewpoints.extend([{'path': image} for image in graph2InputImages])
     graph2b = loadGraph(meshroom.core.pipelineTemplates["photogrammetry"])
@@ -24,6 +29,7 @@ def test_multiviewPipeline():
 
     graph3InputImages = ['/non/existing/file1', '/non/existing/file2']
     graph3 = loadGraph(meshroom.core.pipelineTemplates["photogrammetry"])
+    graph3.name = "graph3"
     graph3CameraInit = graph3.node("CameraInit_1")
     graph3CameraInit.viewpoints.extend([{'path': image} for image in graph3InputImages])
 
@@ -32,9 +38,11 @@ def test_multiviewPipeline():
         {'path': '/non/existing/file2', 'intrinsicId': 55}
         ]  # common to graph4 and graph4b
     graph4 = loadGraph(meshroom.core.pipelineTemplates["photogrammetry"])
+    graph4.name = "graph4"
     graph4CameraInit = graph4.node("CameraInit_1")
     graph4CameraInit.viewpoints.extend(graph4InputViewpoints)
     graph4b = loadGraph(meshroom.core.pipelineTemplates["photogrammetry"])
+    graph4b.name = "graph4b"
     graph4bCameraInit = graph4b.node("CameraInit_1")
     graph4bCameraInit.viewpoints.extend(graph4InputViewpoints)
 
@@ -76,7 +84,7 @@ def test_multiviewPipeline():
         for node in graph1.nodes:
             otherNode = otherGraph.node(node.name)
             for key, attr in node.attributes.items():
-                if attr.isOutput:
+                if attr.isOutput and attr.enabled:
                     otherAttr = otherNode.attribute(key)
                     assert attr.uid() != otherAttr.uid()
 
@@ -86,11 +94,10 @@ def test_multiviewPipeline():
         otherNode = graph2b.node(node.name)
         for key, attr in node.attributes.items():
             otherAttr = otherNode.attribute(key)
-            if attr.isOutput:
+            if attr.isOutput and attr.enabled:
                 assert attr.uid() == otherAttr.uid()
             else:
-                for uidIndex in attr.desc.uid:
-                    assert attr.uid(uidIndex) == otherAttr.uid(uidIndex)
+                assert attr.uid() == otherAttr.uid()
 
     # graph4 == graph4b
     nodes, edges = graph4.dfsOnFinish()
@@ -98,11 +105,10 @@ def test_multiviewPipeline():
         otherNode = graph4b.node(node.name)
         for key, attr in node.attributes.items():
             otherAttr = otherNode.attribute(key)
-            if attr.isOutput:
+            if attr.isOutput and attr.enabled:
                 assert attr.uid() == otherAttr.uid()
             else:
-                for uidIndex in attr.desc.uid:
-                    assert attr.uid(uidIndex) == otherAttr.uid(uidIndex)
+                assert attr.uid() == otherAttr.uid()
 
     # test serialization/deserialization
     for graph in [graph1, graph2, graph3, graph4]:
@@ -116,4 +122,4 @@ def test_multiviewPipeline():
         #  - no compatibility issues
         assert all(isinstance(n, Node) for n in loadedGraph.nodes)
         #  - same UIDs for every node
-        assert sorted([n._uids.get(0) for n in loadedGraph.nodes]) == sorted([n._uids.get(0) for n in graph.nodes])
+        assert sorted([n._uid for n in loadedGraph.nodes]) == sorted([n._uid for n in graph.nodes])

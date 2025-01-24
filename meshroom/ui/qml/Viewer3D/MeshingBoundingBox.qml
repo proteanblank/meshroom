@@ -1,8 +1,8 @@
-import Qt3D.Core 2.0
-import Qt3D.Render 2.9
-import Qt3D.Input 2.0
-import Qt3D.Extras 2.10
-import QtQuick 2.9
+import Qt3D.Core 2.6
+import Qt3D.Render 2.6
+import Qt3D.Input 2.6
+import Qt3D.Extras 2.15
+import QtQuick
 
 /**
  * BoundingBox entity for Meshing node. Used to define the area to reconstruct.
@@ -28,7 +28,7 @@ Entity {
             var rotationEuler_cv = Qt.vector3d(rotation.x, rotation.y, rotation.z)
             var rotation_gl = Transformations3DHelper.convertRotationFromCV2GL(rotationEuler_cv)
 
-            switch(type) {
+            switch (type) {
                 case TransformGizmo.Type.TRANSLATION: {
                     _reconstruction.setAttribute(
                         root.currentMeshingNode.attribute("boundingBox.bboxTranslation"),

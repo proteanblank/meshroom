@@ -1,11 +1,11 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.4
-
+import QtQuick
+import QtQuick.Controls
 
 /**
  * MLabel is a standard Label.
  * If ToolTip.text is set, it shows up a tooltip when hovered.
  */
+
 Label {
     padding: 4
     MouseArea {

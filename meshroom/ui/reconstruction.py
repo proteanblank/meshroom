@@ -6,17 +6,18 @@ from collections.abc import Iterable
 from multiprocessing.pool import ThreadPool
 from threading import Thread
 
-from PySide2.QtCore import QObject, Slot, Property, Signal, QUrl, QSizeF
-from PySide2.QtGui import QMatrix4x4, QMatrix3x3, QQuaternion, QVector3D, QVector2D
+from PySide6.QtCore import QObject, Slot, Property, Signal, QUrl, QSizeF, QPoint
+from PySide6.QtGui import QMatrix4x4, QMatrix3x3, QQuaternion, QVector3D, QVector2D
 
 import meshroom.core
 import meshroom.common
 from meshroom import multiview
 from meshroom.common.qt import QObjectListModel
 from meshroom.core import Version
-from meshroom.core.node import Node, CompatibilityNode, Status, Position
+from meshroom.core.node import Node, CompatibilityNode, Status, Position, CompatibilityIssue
 from meshroom.ui.graph import UIGraph
 from meshroom.ui.utils import makeProperty
+from meshroom.ui.components.filepath import FilepathHelper
 
 
 class Message(QObject):
@@ -169,8 +170,10 @@ class ViewpointWrapper(QObject):
 
     initialParamsChanged = Signal()
     sfmParamsChanged = Signal()
-    denseSceneParamsChanged = Signal()
+    undistortedImageParamsChanged = Signal()
     internalChanged = Signal()
+    principalPointCorrectedChanged = Signal()
+    uvCenterOffsetChanged = Signal()
 
     def __init__(self, viewpointAttribute, reconstruction):
         """
@@ -194,16 +197,21 @@ class ViewpointWrapper(QObject):
         # PrepareDenseScene
         self._undistortedImagePath = ''
         self._activeNode_PrepareDenseScene = self._reconstruction.activeNodes.get("PrepareDenseScene")
+        self._activeNode_ExportAnimatedCamera = self._reconstruction.activeNodes.get("ExportAnimatedCamera")
+        self._principalPointCorrected = False
+        self.principalPointCorrectedChanged.connect(self.uvCenterOffsetChanged)
+        self.sfmParamsChanged.connect(self.uvCenterOffsetChanged)
 
         # update internally cached variables
         self._updateInitialParams()
         self._updateSfMParams()
-        self._updateDenseSceneParams()
+        self._updateUndistortedImageParams()
 
         # trigger internal members updates when reconstruction members changes
         self._reconstruction.cameraInitChanged.connect(self._updateInitialParams)
         self._reconstruction.sfmReportChanged.connect(self._updateSfMParams)
-        self._activeNode_PrepareDenseScene.nodeChanged.connect(self._updateDenseSceneParams)
+        self._activeNode_PrepareDenseScene.nodeChanged.connect(self._updateUndistortedImageParams)
+        self._activeNode_ExportAnimatedCamera.nodeChanged.connect(self._updateUndistortedImageParams)
 
     def _updateInitialParams(self):
         """ Update internal members depending on CameraInit. """
@@ -235,15 +243,25 @@ class ViewpointWrapper(QObject):
             self._reconstructed = self._R is not None
         self.sfmParamsChanged.emit()
 
-    def _updateDenseSceneParams(self):
-        """ Update internal members depending on PrepareDenseScene. """
+    def _updateUndistortedImageParams(self):
+        """ Update internal members depending on PrepareDenseScene or ExportAnimatedCamera. """
         # undistorted image path
-        if not self._activeNode_PrepareDenseScene.node:
+        try:
+            if self._activeNode_ExportAnimatedCamera.node:
+                self._undistortedImagePath = FilepathHelper.resolve(FilepathHelper, self._activeNode_ExportAnimatedCamera.node.outputImages.value, self._viewpoint)
+                self._principalPointCorrected = self._activeNode_ExportAnimatedCamera.node.correctPrincipalPoint.value
+            elif self._activeNode_PrepareDenseScene.node:
+                self._undistortedImagePath = FilepathHelper.resolve(FilepathHelper, self._activeNode_PrepareDenseScene.node.undistorted.value, self._viewpoint)
+                self._principalPointCorrected = False
+            else:
+                self._undistortedImagePath = ''
+                self._principalPointCorrected = False
+        except Exception as e:
             self._undistortedImagePath = ''
-        else:
-            filename = "{}.{}".format(self._viewpoint.viewId.value, self._activeNode_PrepareDenseScene.node.outputFileType.value)
-            self._undistortedImagePath = os.path.join(self._activeNode_PrepareDenseScene.node.output.value, filename)
-        self.denseSceneParamsChanged.emit()
+            self._principalPointCorrected = False
+            logging.info("Failed to retrieve undistorted images path.")
+        self.undistortedImageParamsChanged.emit()
+        self.principalPointCorrectedChanged.emit()
 
     # Get the underlying Viewpoint attribute wrapped by this Viewpoint.
     attribute = Property(QObject, lambda self: self._viewpoint, constant=True)
@@ -327,10 +345,10 @@ class ViewpointWrapper(QObject):
         """ Get camera up vector. """
         return QVector3D(0.0, 1.0, 0.0)
 
-    @Property(type=QVector2D, notify=sfmParamsChanged)
+    @Property(type=QVector2D, notify=uvCenterOffsetChanged)
     def uvCenterOffset(self):
         """ Get UV offset corresponding to the camera principal point. """
-        if not self.solvedIntrinsics:
+        if not self.solvedIntrinsics or self._principalPointCorrected:
             return None
         pp = self.solvedIntrinsics["principalPoint"]
         # compute principal point offset in UV space
@@ -343,14 +361,29 @@ class ViewpointWrapper(QObject):
         if not self.solvedIntrinsics:
             return None
         focalLength = self.solvedIntrinsics["focalLength"]
+        
+        #We assume that if the width is less than the weight
+        #It's because the image has been rotated and not
+        #because the sensor has some unusual shape
+        sensorWidth = self.solvedIntrinsics["sensorWidth"]
+        sensorHeight = self.solvedIntrinsics["sensorHeight"]
+        if self.imageSize.height() > self.imageSize.width():
+            sensorWidth, sensorHeight = sensorHeight, sensorWidth
+
         if self.orientation in (5, 6, 7, 8):
-            sensorWidth = self.solvedIntrinsics["sensorWidth"]
             return 2.0 * math.atan(float(sensorWidth) / (2.0 * float(focalLength))) * 180.0 / math.pi
         else:
-            sensorHeight = self.solvedIntrinsics["sensorHeight"]
             return 2.0 * math.atan(float(sensorHeight) / (2.0 * float(focalLength))) * 180.0 / math.pi
+        
+    @Property(type=float, notify=sfmParamsChanged)
+    def pixelAspectRatio(self):
+        """ Get camera pixel aspect ratio. """
+        if not self.solvedIntrinsics:
+            return 1.0
+        
+        return float(self.solvedIntrinsics["pixelRatio"])
 
-    @Property(type=QUrl, notify=denseSceneParamsChanged)
+    @Property(type=QUrl, notify=undistortedImageParamsChanged)
     def undistortedImageSource(self):
         """ Get path to undistorted image source if available. """
         return QUrl.fromLocalFile(self._undistortedImagePath)
@@ -373,8 +406,9 @@ def parseSfMJsonFile(sfmJsonFile):
     for view in report['views']:
         views[view['viewId']] = view
 
-    for pose in report['poses']:
-        poses[pose['poseId']] = pose['pose']
+    if "poses" in report:
+        for pose in report['poses']:
+            poses[pose['poseId']] = pose['pose']
 
     for intrinsic in report['intrinsics']:
         intrinsics[intrinsic['intrinsicId']] = intrinsic
@@ -401,20 +435,25 @@ class Reconstruction(UIGraph):
     """
     activeNodeCategories = {
         # All nodes generating a sfm scene (3D reconstruction or panorama)
-        "sfm": ["StructureFromMotion", "GlobalSfM", "PanoramaEstimation", "SfMTransfer", "SfMTransform",
+        "sfm": ["StructureFromMotion", "GlobalSfM", "PanoramaEstimation", "SfMTransform",
                 "SfMAlignment"],
         # All nodes generating a sfmData file
-        "sfmData": ["CameraInit", "DistortionCalibration", "StructureFromMotion", "GlobalSfM", "PanoramaEstimation", "SfMTransfer", "SfMTransform",
-                "SfMAlignment"],
+        "sfmData": ["CameraInit", "DistortionCalibration", "StructureFromMotion", "GlobalSfM",
+                    "PanoramaEstimation", "SfMTransfer", "SfMTransform", "SfMAlignment",
+                    "ApplyCalibration"],
         # All nodes generating depth map files
         "allDepthMap": ["DepthMap", "DepthMapFilter"],
+        # Nodes that can be used to provide features folders to the UI
+        "featureProvider": ["FeatureExtraction", "FeatureMatching", "StructureFromMotion"],
+        # Nodes that can be used to provide matches folders to the UI
+        "matchProvider": ["FeatureMatching", "StructureFromMotion"]
     }
 
-    def __init__(self, undoStack, taskManager, defaultPipeline='', parent=None):
+    def __init__(self, undoStack, taskManager, defaultPipeline="", parent=None):
         super(Reconstruction, self).__init__(undoStack, taskManager, parent)
 
         # initialize member variables for key steps of the 3D reconstruction pipeline
-
+        self._active = False
         self._activeNodes = meshroom.common.DictModel(keyAttrName="nodeType")
         self.initActiveNodes()
 
@@ -437,7 +476,10 @@ class Reconstruction(UIGraph):
         self._solvedIntrinsics = None
         self._selectedViewId = None
         self._selectedViewpoint = None
+        self._pickedViewId = None
         self._liveSfmManager = LiveSfmManager(self)
+
+        self._currentViewPath = ""
 
         self._workerThreads = ThreadPool(processes=1)
 
@@ -446,9 +488,18 @@ class Reconstruction(UIGraph):
 
         self.setDefaultPipeline(defaultPipeline)
 
+    def __del__(self):
+        self._workerThreads.terminate()
+        self._workerThreads.join()
+
+    def setActive(self, active):
+        self._active = active
+
+    @Slot()
     def clear(self):
         self.clearActiveNodes()
         super(Reconstruction, self).clear()
+        self.setActive(False)
 
     def setDefaultPipeline(self, defaultPipeline):
         self._defaultPipeline = defaultPipeline
@@ -459,15 +510,17 @@ class Reconstruction(UIGraph):
     def initActiveNodes(self):
         # Create all possible entries
         for category, _ in self.activeNodeCategories.items():
-            self._activeNodes.add(ActiveNode(category, self))
+            self._activeNodes.add(ActiveNode(category, parent=self))
         for nodeType, _ in meshroom.core.nodesDesc.items():
-            self._activeNodes.add(ActiveNode(nodeType, self))
+            self._activeNodes.add(ActiveNode(nodeType, parent=self))
 
     def clearActiveNodes(self):
         for key in self._activeNodes.keys():
             self._activeNodes.get(key).node = None
 
     def onCameraInitChanged(self):
+        if self._cameraInit is None:
+            return
         # Update active nodes when CameraInit changes
         nodes = self._graph.dfsOnDiscover(startNodes=[self._cameraInit], reverse=True)[0]
         self.setActiveNodes(nodes)
@@ -475,8 +528,8 @@ class Reconstruction(UIGraph):
     @Slot()
     @Slot(str)
     def new(self, pipeline=None):
-        p = pipeline if pipeline != None else self._defaultPipeline
         """ Create a new pipeline. """
+        p = pipeline if pipeline != None else self._defaultPipeline
         # Lower the input and the dictionary keys to make sure that all input types can be found:
         # - correct pipeline name but the case does not match (e.g. panoramaHDR instead of panoramaHdr)
         # - lowercase pipeline name given through the "New Pipeline" menu
@@ -489,6 +542,7 @@ class Reconstruction(UIGraph):
 
     @Slot(str, result=bool)
     def load(self, filepath, setupProjectFile=True, publishOutputs=False):
+        logging.info(f"Load project file: '{filepath}'")
         try:
             status = super(Reconstruction, self).loadGraph(filepath, setupProjectFile, publishOutputs)
             # warn about pre-release projects being automatically upgraded
@@ -499,6 +553,7 @@ class Reconstruction(UIGraph):
                     "Data might have been lost in the process.",
                     "Open it with the corresponding version of Meshroom to recover your data."
                 ))
+            self.setActive(True)
             return status
         except FileNotFoundError as e:
             self.error.emit(
@@ -508,7 +563,7 @@ class Reconstruction(UIGraph):
                     ""
                 )
             )
-            logging.error("Error while loading '{}': No Such File.".format(os.path.basename(filepath)))
+            logging.error("Error while loading '{}': No Such File.".format(filepath))
             return False
         except Exception as e:
             import traceback
@@ -520,6 +575,7 @@ class Reconstruction(UIGraph):
                     trace
                 )
             )
+            logging.error("Error while loading '{}'.".format(filepath))
             logging.error(trace)
             return False
 
@@ -540,13 +596,12 @@ class Reconstruction(UIGraph):
         """ React to the change of the internal graph. """
         self._liveSfmManager.reset()
         self.selectedViewId = "-1"
-        self.sfm = None
         self.tempCameraInit = None
         self.updateCameraInits()
+        self.resetActiveNodePerCategory()
+        self.sfm = self.lastSfmNode()
         if not self._graph:
             return
-
-        self.setSfm(self.lastSfmNode())
 
         # TODO: listen specifically for cameraInit creation/deletion
         self._graph.nodes.countChanged.connect(self.updateCameraInits)
@@ -567,7 +622,12 @@ class Reconstruction(UIGraph):
         if set(self._cameraInits.objectList()) == set(cameraInits):
             return
         self._cameraInits.setObjectList(cameraInits)
-        self.cameraInit = cameraInits[0] if cameraInits else None
+
+        if self.cameraInit is None or self.cameraInit not in cameraInits:
+            self.cameraInit = cameraInits[0] if cameraInits else None
+
+        # Manually emit the signal to ensure the active CameraInit index is always up-to-date in the UI
+        self.cameraInitChanged.emit()
 
     def getCameraInitIndex(self):
         if not self._cameraInit:
@@ -581,6 +641,14 @@ class Reconstruction(UIGraph):
     def setCameraInitIndex(self, idx):
         camInit = self._cameraInits[idx] if self._cameraInits else None
         self.cameraInit = camInit
+        # Update the active viewpoint accordingly
+        if self.viewpoints:
+            self.setSelectedViewId(self.viewpoints[0].viewId.value)
+
+    def setCameraInitNode(self, node):
+        if self._cameraInit == node:
+            return
+        self.setCameraInitIndex(self._cameraInits.indexOf(node))
 
     @Slot()
     def clearTempCameraInit(self):
@@ -602,7 +670,7 @@ class Reconstruction(UIGraph):
         self.tempCameraInit = tmpCameraInit
         rootNode = self.graph.dfsOnFinish([node])[0][0]
         if rootNode.nodeType == "CameraInit":
-            self.setCameraInitIndex(self._cameraInits.indexOf(rootNode))
+            self.setCameraInitNode(rootNode)
 
     @Slot(QObject, result=QVector3D)
     def getAutoFisheyeCircle(self, panoramaInit):
@@ -650,6 +718,8 @@ class Reconstruction(UIGraph):
         nodes = self._graph.dfsOnDiscover(startNodes=[startNode], filterTypes=nodeTypes, reverse=True)[0]
         if not nodes:
             return None
+        # order the nodes according to their depth in the graph, then according to their name
+        nodes.sort(key=lambda n: (n.depth, n.name))
         node = nodes[-1]
         if preferredStatus:
             node = next((n for n in reversed(nodes) if n.getGlobalStatus() == preferredStatus), node)
@@ -692,6 +762,7 @@ class Reconstruction(UIGraph):
         self.sfmAugmented.emit(first, last)
         return sfm[0], sfm[-1]
 
+    @Slot(result="QVariantList")
     def allImagePaths(self):
         """ Get all image paths in the reconstruction. """
         return [vp.path.value for node in self._cameraInits for vp in node.viewpoints.value]
@@ -700,23 +771,48 @@ class Reconstruction(UIGraph):
         """ Get all view Ids involved in the reconstruction. """
         return [vp.viewId.value for node in self._cameraInits for vp in node.viewpoints.value]
 
-    @Slot(QObject, Node)
-    def handleFilesDrop(self, drop, cameraInit):
+    @Slot("QVariantMap", result=bool)
+    @Slot("QVariantMap", Node, result=bool)
+    @Slot("QVariantMap", Node, "QPoint", result=bool)
+    def handleFilesUrl(self, filesByType, cameraInit=None, position=None):
         """ Handle drop events aiming to add images to the Reconstruction.
-        Fetching urls from dropEvent is generally expensive in QML/JS (bug ?).
         This method allows to reduce process time by doing it on Python side.
+
+        Args:
+            {images, videos, panoramaInfo, meshroomScenes, otherFiles}: Map containing the lists of paths for recognized images, videos, Meshroom scenes and other files.
+            Node: cameraInit node used to add new images to it
+            QPoint: position to locate the node (usually the mouse position)
         """
-        filesByType = self.getFilesByTypeFromDrop(drop)
-        if filesByType.images:
-            self._workerThreads.apply_async(func=self.importImagesSync, args=(filesByType.images, cameraInit,))
-        if filesByType.videos:
-            boundingBox = self.layout.boundingBox()
-            keyframeNode = self.addNewNode("KeyframeSelection", position=Position(boundingBox[0], boundingBox[1] + boundingBox[3]))
-            keyframeNode.inputPaths.value = filesByType.videos
-            if len(filesByType.videos) == 1:
+        if filesByType["images"]:
+            if cameraInit is None:
+                if not self._cameraInits:
+                    if isinstance(position, QPoint):
+                        p = Position(position.x(), position.y())
+                    else:
+                        p = position
+                    cameraInit = self.addNewNode("CameraInit", position=p)
+                else:
+                    boundingBox = self.layout.boundingBox()
+                    if not position:
+                        p = Position(boundingBox[0], boundingBox[1] + boundingBox[3])
+                    elif isinstance(position, QPoint):
+                        p = Position(position.x(), position.y())
+                    else:
+                        p = position
+                    cameraInit = self.addNewNode("CameraInit", position=p)
+            self._workerThreads.apply_async(func=self.importImagesSync, args=(filesByType["images"], cameraInit,))
+        if filesByType["videos"]:
+            if self.nodes:
+                boundingBox = self.layout.boundingBox()
+                p = Position(boundingBox[0], boundingBox[1] + boundingBox[3])
+            else:
+                p = position
+            keyframeNode = self.addNewNode("KeyframeSelection", position=p)
+            keyframeNode.inputPaths.value = filesByType["videos"]
+            if len(filesByType["videos"]) == 1:
                 newVideoNodeMessage = "New node '{}' added for the input video.".format(keyframeNode.getLabel())
             else:
-                newVideoNodeMessage = "New node '{}' added for a rig of {} synchronized cameras.".format(keyframeNode.getLabel(), len(filesByType.videos))
+                newVideoNodeMessage = "New node '{}' added for a rig of {} synchronized cameras.".format(keyframeNode.getLabel(), len(filesByType["videos"]))
             self.info.emit(
                 Message(
                     "Video Input",
@@ -726,17 +822,17 @@ class Reconstruction(UIGraph):
                     "If you know the Camera Make/Model, it is highly recommended to declare them in the Node."
                 ))
 
-        if filesByType.panoramaInfo:
-            if len(filesByType.panoramaInfo) > 1:
+        if filesByType["panoramaInfo"]:
+            if len(filesByType["panoramaInfo"]) > 1:
                 self.error.emit(
                     Message(
                         "Multiple XML files in input",
-                        "Ignore the xml Panorama files:\n\n'{}'.".format(',\n'.join(filesByType.panoramaInfo)),
+                        "Ignore the xml Panorama files:\n\n'{}'.".format(',\n'.join(filesByType["panoramaInfo"])),
                         "",
                     ))
             else:
                 panoramaInitNodes = self.graph.nodesOfType('PanoramaInit')
-                for panoramaInfoFile in filesByType.panoramaInfo:
+                for panoramaInfoFile in filesByType["panoramaInfo"]:
                     for panoramaInitNode in panoramaInitNodes:
                         panoramaInitNode.attribute('initializeCameras').value = 'File'
                         panoramaInitNode.attribute('config').value = panoramaInfoFile
@@ -745,38 +841,54 @@ class Reconstruction(UIGraph):
                         Message(
                             "Panorama XML",
                             "XML file declared on PanoramaInit node",
-                            "XML file '{}' set on node '{}'".format(','.join(filesByType.panoramaInfo), ','.join([n.getLabel() for n in panoramaInitNodes])),
+                            "XML file '{}' set on node '{}'".format(','.join(filesByType["panoramaInfo"]), ','.join([n.getLabel() for n in panoramaInitNodes])),
                         ))
                 else:
                     self.error.emit(
                         Message(
                             "No PanoramaInit Node",
-                            "No PanoramaInit Node to set the Panorama file:\n'{}'.".format(','.join(filesByType.panoramaInfo)),
+                            "No PanoramaInit Node to set the Panorama file:\n'{}'.".format(','.join(filesByType["panoramaInfo"])),
                             "",
                         ))
 
-        if not filesByType.images and not filesByType.videos and not filesByType.panoramaInfo:
-            if filesByType.other:
-                extensions = set([os.path.splitext(url)[1] for url in filesByType.other])
+        if filesByType["meshroomScenes"]:
+            if len(filesByType["meshroomScenes"]) > 1:
+                self.error.emit(
+                    Message(
+                    "Too Many Meshroom Scenes",
+                    "A single Meshroom scene (.mg file) can be imported at once."
+                    )
+                )
+            else:
+                return self.loadUrl(filesByType["meshroomScenes"][0])
+
+
+
+        if not filesByType["images"] and not filesByType["videos"] and not filesByType["panoramaInfo"] and not filesByType["meshroomScenes"]:
+            if filesByType["other"]:
+                extensions = set([os.path.splitext(url)[1] for url in filesByType["other"]])
                 self.error.emit(
                     Message(
                         "No Recognized Input File",
-                        "No recognized input file in the {} dropped files".format(len(filesByType.other)),
+                        "No recognized input file in the {} dropped files".format(len(filesByType["other"])),
                         "Unknown file extensions: " + ', '.join(extensions)
                     )
                 )
+        
+        # As the boolean is introduced to check if the project is loaded or not, the return value is added to the function.
+        # The default value is False, which means the project is not loaded.
+        return False
 
-    @staticmethod
-    def getFilesByTypeFromDrop(drop):
+    @Slot("QList<QUrl>", result="QVariantMap")
+    def getFilesByTypeFromDrop(self, urls):
         """
 
         Args:
-            drop:
+            urls: list of filepaths
 
         Returns:
-            <images, otherFiles> List of recognized images and list of other files
+            {images, videos, panoramaInfo, meshroomScenes, otherFiles}: Map containing the lists of paths for recognized images, videos, Meshroom scenes and other files.
         """
-        urls = drop.property("urls")
         # Build the list of images paths
         filesByType = multiview.FilesByType()
         for url in urls:
@@ -785,7 +897,7 @@ class Reconstruction(UIGraph):
                 filesByType.extend(multiview.findFilesByTypeInFolder(localFile))
             else:
                 filesByType.addFile(localFile)
-        return filesByType
+        return {"images": filesByType.images, "videos": filesByType.videos, "panoramaInfo": filesByType.panoramaInfo, "meshroomScenes": filesByType.meshroomScenes, "other": filesByType.other}
 
     def importImagesFromFolder(self, path, recursive=False):
         """
@@ -797,6 +909,9 @@ class Reconstruction(UIGraph):
         """
         logging.debug("importImagesFromFolder: " + str(path))
         filesByType = multiview.findFilesByTypeInFolder(path, recursive)
+        if not self.cameraInit:
+            # Create a CameraInit node if none exists
+            self.cameraInit = self.addNewNode("CameraInit")
         if filesByType.images:
             self._workerThreads.apply_async(func=self.importImagesSync, args=(filesByType.images, self.cameraInit,))
 
@@ -854,10 +969,10 @@ class Reconstruction(UIGraph):
         if rebuild:
             # if rebuilding all intrinsics, for each Viewpoint:
             for vp in cameraInitCopy.viewpoints.value:
-                vp.intrinsicId.resetValue()  # reset intrinsic assignation
-                vp.metadata.resetValue()  # and metadata (to clear any previous 'SensorWidth' entries)
+                vp.intrinsicId.resetToDefaultValue()  # reset intrinsic assignation
+                vp.metadata.resetToDefaultValue()  # and metadata (to clear any previous 'SensorWidth' entries)
             # reset existing intrinsics list
-            cameraInitCopy.intrinsics.resetValue()
+            cameraInitCopy.intrinsics.resetToDefaultValue()
 
         try:
             self.setBuildingIntrinsics(True)
@@ -936,39 +1051,53 @@ class Reconstruction(UIGraph):
     liveSfmManager = Property(QObject, lambda self: self._liveSfmManager, constant=True)
 
     @Slot(QObject)
-    def setActiveNode(self, node):
-        """ Set node as the active node of its type. """
-        for category, nodeTypes in self.activeNodeCategories.items():
-            if node.nodeType in nodeTypes:
-                self.activeNodes.get(category).node = node
-                if category == 'sfm':
-                    self.setSfm(node)
+    def setActiveNode(self, node, categories=True, inputs=True):
+        """ Set node as the active node of its type and of its categories.
+        Also upgrade related input nodes.
+        """
+        if categories:
+            for category, nodeTypes in self.activeNodeCategories.items():
+                if node.nodeType in nodeTypes:
+                    self.activeNodes.getr(category).node = node
 
-                # if the active node is a CameraInit node, update the camera init index
-                if node.nodeType == "CameraInit":
-                    self.setCameraInitIndex(self._cameraInits.indexOf(node))
-        self.activeNodes.get(node.nodeType).node = node
+                    if category == "sfm":
+                        self.setSfm(node)
+
+        if node.nodeType == "CameraInit":
+            # if the active node is a CameraInit node, update the camera init index
+            self.setCameraInitNode(node)
+        elif inputs:
+            # Update the input node to ensure that it is part of the dependency of the new active node.
+            # Retrieve all nodes that are input nodes of the new active node
+            inputNodes = node.getInputNodes(recursive=True, dependenciesOnly=True)
+            inputCameraInitNodes = [n for n in inputNodes if n.nodeType == "CameraInit"]
+            # if the current camera init node is not the same as the camera init node of the active node
+            if inputCameraInitNodes and self.cameraInit not in inputCameraInitNodes:
+                # set the camera init node of the active node as the current camera init node
+                # if multiple camera init, select one arbitrarily (the one with more viewpoints)
+                inputCameraInitNodes.sort(key=lambda n: len(n.viewpoints.value), reverse=True)
+                cameraInitNode = inputCameraInitNodes[0]
+                self.setCameraInitNode(cameraInitNode)
+
+        # Set the new active node (if it is not an unknown type)
+        unknownType = isinstance(node, CompatibilityNode) and node.issue == CompatibilityIssue.UnknownNodeType
+        if not unknownType:
+            self.activeNodes.get(node.nodeType).node = node
 
     @Slot(QObject)
     def setActiveNodes(self, nodes):
         """ Set node as the active node of its type. """
+        for node in nodes:
+            if node is None:
+                continue
+            self.setActiveNode(node, categories=False, inputs=False)
+
+    def resetActiveNodePerCategory(self):
         # Setup the active node per category only once, on the last one
         nodesByCategory = {}
-        for node in nodes:
-            if node is None:
-                continue
-            for category, nodeTypes in self.activeNodeCategories.items():
-                if node.nodeType in nodeTypes:
-                    nodesByCategory[category] = node
-        for category, node in nodesByCategory.items():
+        for category, nodeTypes in self.activeNodeCategories.items():
+            node = self.lastNodeOfType(nodeTypes, self._cameraInit, Status.SUCCESS)
             self.activeNodes.get(category).node = node
-            if category == 'sfm':
-                self.setSfm(node)
-        for node in nodes:
-            if node is None:
-                continue
-            if not isinstance(node, CompatibilityNode):
-                self.activeNodes.get(node.nodeType).node = node
 
     def updateSfMResults(self):
         """
@@ -1029,6 +1158,8 @@ class Reconstruction(UIGraph):
         if not viewpoint:
             return False
         # fetch up-to-date poseId from sfm result (in case of rigs, poseId might have changed)
+        if not self._views:
+            return False
         view = self._views.get(str(viewpoint.poseId.value), None)  # keys are strings (faster lookup)
         return view.get('poseId', -1) in self._poses if view else False
 
@@ -1062,6 +1193,7 @@ class Reconstruction(UIGraph):
         if viewId == self._selectedViewId:
             return
         self._selectedViewId = viewId
+        self.setPickedViewId(viewId)
         vp = None
         if self.viewpoints:
             vp = next((v for v in self.viewpoints if str(v.viewId.value) == self._selectedViewId), None)
@@ -1073,6 +1205,21 @@ class Reconstruction(UIGraph):
             # Reconstruction has ownership of Viewpoint object - destroy it when not needed anymore
             self._selectedViewpoint.deleteLater()
         self._selectedViewpoint = ViewpointWrapper(viewpointAttribute, self) if viewpointAttribute else None
+        self.selectedViewpointChanged.emit()
+
+    def setPickedViewId(self, viewId):
+        if viewId == self._pickedViewId:
+            return
+        self._pickedViewId = viewId
+        self.pickedViewIdChanged.emit()
+
+    @Slot(str)
+    def updateSelectedViewpoint(self, viewId):
+        """ Update the currently set viewpoint if the provided view ID corresponds to one. """
+        vp = None
+        if self.viewpoints:
+            vp = next((v for v in self.viewpoints if str(v.viewId.value) == viewId), None)
+        self._setSelectedViewpoint(vp)
 
     def reconstructedCamerasCount(self):
         """ Get the number of reconstructed cameras in the current context. """
@@ -1116,9 +1263,18 @@ class Reconstruction(UIGraph):
 
         return R, T
 
+    def setCurrentViewPath(self, path):
+        if self._currentViewPath == path:
+            return
+        self._currentViewPath = path
+        self.currentViewPathChanged.emit()
+
     selectedViewIdChanged = Signal()
     selectedViewId = Property(str, lambda self: self._selectedViewId, setSelectedViewId, notify=selectedViewIdChanged)
-    selectedViewpoint = Property(ViewpointWrapper, lambda self: self._selectedViewpoint, notify=selectedViewIdChanged)
+    selectedViewpointChanged = Signal()
+    selectedViewpoint = Property(ViewpointWrapper, lambda self: self._selectedViewpoint, notify=selectedViewpointChanged)
+    pickedViewIdChanged = Signal()
+    pickedViewId = Property(str, lambda self: self._pickedViewId, setPickedViewId, notify=pickedViewIdChanged)
 
     sfmChanged = Signal()
     sfm = Property(QObject, getSfm, setSfm, notify=sfmChanged)
@@ -1129,6 +1285,17 @@ class Reconstruction(UIGraph):
     sfmAugmented = Signal(Node, Node)
 
     nbCameras = Property(int, reconstructedCamerasCount, notify=sfmReportChanged)
+
+    # Provides the path of the image that is currently displayed
+    # This is an alternative to "selectedViewpoint.attribute.path.value" for images that are displayed
+    # but not part of the list of viewpoints of a CameraInit node (i.e. "sequence" node outputs)
+    currentViewPathChanged = Signal()
+    currentViewPath = Property(str, lambda self: self._currentViewPath, setCurrentViewPath, notify=currentViewPathChanged)
+
+    # Whether the Reconstruction object has been set ("new" has been called) or not ("new" has never
+    # been called or "clear" has been called)
+    activeChanged = Signal()
+    active = Property(bool, lambda self: self._active, setActive, notify=activeChanged)
 
     # Signals to propagate high-level messages
     error = Signal(Message)

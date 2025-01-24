@@ -1,6 +1,7 @@
 __version__ = "2.0"
 
 from meshroom.core import desc
+from meshroom.core.utils import DESCRIBER_TYPES, VERBOSE_LEVEL
 
 
 class ConvertSfMFormat(desc.AVCommandLineNode):
@@ -15,97 +16,84 @@ It can also be used to remove specific parts of from an SfM scene (like filter a
 
     inputs = [
         desc.File(
-            name='input',
-            label='Input',
-            description='SfMData file.',
-            value='',
-            uid=[0],
+            name="input",
+            label="Input",
+            description="Input SfMData file.",
+            value="",
         ),
         desc.ChoiceParam(
-            name='fileExt',
-            label='SfM File Format',
-            description='SfM File Format',
-            value='abc',
-            values=['abc', 'sfm', 'json', 'ply', 'baf'],
-            exclusive=True,
-            uid=[0],
-            group='',  # exclude from command line
+            name="fileExt",
+            label="SfM File Format",
+            description="Output SfM file format.",
+            value="abc",
+            values=["abc", "sfm", "json", "ply", "baf"],
+            group="",  # exclude from command line
         ),
         desc.ChoiceParam(
-            name='describerTypes',
-            label='Describer Types',
-            description='Describer types to keep.',
-            value=['dspsift'],
-            values=['sift', 'sift_float', 'sift_upright', 'dspsift', 'akaze', 'akaze_liop', 'akaze_mldb', 'cctag3', 'cctag4', 'sift_ocv', 'akaze_ocv', 'tag16h5', 'unknown'],
+            name="describerTypes",
+            label="Describer Types",
+            description="Describer types to keep.",
+            values=DESCRIBER_TYPES,
+            value=["dspsift"],
             exclusive=False,
-            uid=[0],
-            joinChar=',',
+            joinChar=",",
+            exposed=True,
         ),
         desc.ListAttribute(
             elementDesc=desc.File(
                 name="imageId",
-                label="Image id",
-                description="",
+                label="Image ID",
+                description="UID or path of an image to add to the white list.",
                 value="",
-                uid=[0],
             ),
             name="imageWhiteList",
             label="Image White List",
-            description='image white list (uids or image paths).',
+            description="Image white list (UIDs or image paths).",
         ),
         desc.BoolParam(
-            name='views',
-            label='Views',
-            description='Export views.',
+            name="views",
+            label="Views",
+            description="Export views.",
             value=True,
-            uid=[0],
         ),
         desc.BoolParam(
-            name='intrinsics',
-            label='Intrinsics',
-            description='Export intrinsics.',
+            name="intrinsics",
+            label="Intrinsics",
+            description="Export intrinsics.",
             value=True,
-            uid=[0],
         ),
         desc.BoolParam(
-            name='extrinsics',
-            label='Extrinsics',
-            description='Export extrinsics.',
+            name="extrinsics",
+            label="Extrinsics",
+            description="Export extrinsics.",
             value=True,
-            uid=[0],
         ),
         desc.BoolParam(
-            name='structure',
-            label='Structure',
-            description='Export structure.',
+            name="structure",
+            label="Structure",
+            description="Export structure.",
             value=True,
-            uid=[0],
         ),
         desc.BoolParam(
-            name='observations',
-            label='Observations',
-            description='Export observations.',
+            name="observations",
+            label="Observations",
+            description="Export observations.",
             value=True,
-            uid=[0],
         ),
         desc.ChoiceParam(
-            name='verboseLevel',
-            label='Verbose Level',
-            description='verbosity level (fatal, error, warning, info, debug, trace).',
-            value='info',
-            values=['fatal', 'error', 'warning', 'info', 'debug', 'trace'],
-            exclusive=True,
-            uid=[0],
+            name="verboseLevel",
+            label="Verbose Level",
+            description="Verbosity level (fatal, error, warning, info, debug, trace).",
+            values=VERBOSE_LEVEL,
+            value="info",
         ),
     ]
 
     outputs = [
         desc.File(
-            name='output',
-            label='Output',
-            description='Path to the output SfM Data file.',
-            value=desc.Node.internalFolder + 'sfm.{fileExtValue}',
-            uid=[],
-            ),
+            name="output",
+            label="Output",
+            description="Path to the output SfMData file.",
+            value=desc.Node.internalFolder + "sfm.{fileExtValue}",
+        ),
     ]
-

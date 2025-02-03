@@ -1,10 +1,10 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-
+import QtQuick
+import QtQuick.Controls
 
 /**
  * A custom CheckBox designed to be used in ChartView's legend.
  */
+
 CheckBox {
     id: root
 

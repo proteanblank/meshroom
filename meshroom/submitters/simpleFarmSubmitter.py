@@ -4,6 +4,7 @@
 import os
 import json
 import logging
+import getpass
 
 import simpleFarm
 from meshroom.core.desc import Level
@@ -38,7 +39,7 @@ class SimpleFarmSubmitter(BaseSubmitter):
                 # logging.info('REZ: {}'.format(str(r)))
                 v = r.split('-')
                 # logging.info('    v: {}'.format(str(v)))
-                if len(v) == 2:
+                if len(v) >= 2:
                     resolvedVersions[v[0]] = v[1]
             for p in packages:
                 if p.startswith('~'):
@@ -53,6 +54,9 @@ class SimpleFarmSubmitter(BaseSubmitter):
 
         if 'REZ_DEV_PACKAGES_ROOT' in os.environ:
             self.environment['REZ_DEV_PACKAGES_ROOT'] = os.environ['REZ_DEV_PACKAGES_ROOT']
+
+        if 'REZ_PROD_PACKAGES_PATH' in os.environ:
+            self.environment['REZ_PROD_PACKAGES_PATH'] = os.environ['REZ_PROD_PACKAGES_PATH']
 
     def createTask(self, meshroomFile, node):
         tags = self.DEFAULT_TAGS.copy()  # copy to not modify default tags
@@ -73,7 +77,7 @@ class SimpleFarmSubmitter(BaseSubmitter):
         allRequirements.extend(self.config['GPU'].get(node.nodeDesc.gpu.name, []))
 
         task = simpleFarm.Task(
-            name=node.nodeType,
+            name=node.name,
             command='{exe} --node {nodeName} "{meshroomFile}" {parallelArgs} --extern'.format(
                 exe='meshroom_compute' if self.reqPackages else os.path.join(binDir, 'meshroom_compute'),
                 nodeName=node.name, meshroomFile=meshroomFile, parallelArgs=parallelArgs),
@@ -103,6 +107,7 @@ class SimpleFarmSubmitter(BaseSubmitter):
                 tags=mainTags,
                 requirements={'service': str(','.join(allRequirements))},
                 environment=self.environment,
+                user=os.environ.get('USER', os.environ.get('FARM_USER', getpass.getuser())),
                 )
 
         nodeNameToTask = {}

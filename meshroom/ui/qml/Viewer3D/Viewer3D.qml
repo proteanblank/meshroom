@@ -1,17 +1,14 @@
-import QtQuick 2.7
-import QtQuick.Controls 2.3
-import QtQuick.Controls 1.4 as Controls1
-import QtQuick.Layouts 1.3
-import QtQml.Models 2.2
-import QtQuick.Scene3D 2.0
-import Qt3D.Core 2.1
-import Qt3D.Render 2.1
-import Qt3D.Extras 2.10
-import Qt3D.Input 2.1 as Qt3DInput // to avoid clash with Controls2 Action
-
-import MaterialIcons 2.2
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import QtQuick.Scene3D 2.6
+import Qt3D.Core 2.6
+import Qt3D.Render 2.6
+import Qt3D.Extras 2.15
+import Qt3D.Input 2.6 as Qt3DInput // to avoid clash with Controls2 Action
 
 import Controls 1.0
+import MaterialIcons 2.2
 import Utils 1.0
 
 
@@ -23,38 +20,37 @@ FocusScope {
     readonly property alias mainCamera: mainCamera
 
     readonly property vector3d defaultCamPosition: Qt.vector3d(12.0, 10.0, -12.0)
-    readonly property vector3d defaultCamUpVector: Qt.vector3d(0.0, 1.0, 0.0)
+    readonly property vector3d defaultCamUpVector: Qt.vector3d(-0.358979, 0.861550, 0.358979) // should be accurate, consistent with camera view center
     readonly property vector3d defaultCamViewCenter: Qt.vector3d(0.0, 0.0, 0.0)
 
     readonly property var viewpoint: _reconstruction ? _reconstruction.selectedViewpoint : null
     readonly property bool doSyncViewpointCamera: Viewer3DSettings.syncViewpointCamera && (viewpoint && viewpoint.isReconstructed)
 
-    // functions
+    // Functions
     function resetCameraPosition() {
-        mainCamera.position = defaultCamPosition;
-        mainCamera.upVector = defaultCamUpVector;
-        mainCamera.viewCenter = defaultCamViewCenter;
+        mainCamera.position = defaultCamPosition
+        mainCamera.upVector = defaultCamUpVector
+        mainCamera.viewCenter = defaultCamViewCenter
     }
 
     function load(filepath, label = undefined) {
-        mediaLibrary.load(filepath, label);
+        mediaLibrary.load(filepath, label)
     }
 
     /// View 'attribute' in the 3D Viewer. Media will be loaded if needed.
     /// Returns whether the attribute can be visualized (matching type and extension).
     function view(attribute) {
-        if( attribute.desc.type === "File"
-           && Viewer3DSettings.supportedExtensions.indexOf(Filepath.extension(attribute.value)) > - 1 )
-        {
-            mediaLibrary.view(attribute);
-            return true;
+        if (attribute.desc.type === "File"
+           && Viewer3DSettings.supportedExtensions.indexOf(Filepath.extension(attribute.value)) > - 1) {
+            mediaLibrary.view(attribute)
+            return true
         }
-        return false;
+        return false
     }
 
     /// Solo (i.e display only) the given attribute.
     function solo(attribute) {
-        mediaLibrary.solo(mediaLibrary.find(attribute));
+        mediaLibrary.solo(mediaLibrary.find(attribute))
     }
 
     function clear() {
@@ -66,8 +62,8 @@ FocusScope {
     Scene3D {
         id: scene3D
         anchors.fill: parent
-        cameraAspectRatioMode: Scene3D.AutomaticAspectRatio // vs. UserAspectRatio
-        hoverEnabled: true // if true, will trigger positionChanged events in attached MouseHandler
+        cameraAspectRatioMode: Scene3D.AutomaticAspectRatio  // vs. UserAspectRatio
+        hoverEnabled: true  // If true, will trigger positionChanged events in attached MouseHandler
         aspects: ["logic", "input"]
         focus: true
 
@@ -87,15 +83,12 @@ FocusScope {
             }
         ]
 
-        Keys.onPressed: {
-            if (event.key == Qt.Key_F) {
-                resetCameraPosition();
-            }
-            else if(Qt.Key_1 <= event.key && event.key < Qt.Key_1 + Viewer3DSettings.renderModes.length)
-            {
-                Viewer3DSettings.renderMode = event.key - Qt.Key_1;
-            }
-            else {
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_F) {
+                resetCameraPosition()
+            } else if (Qt.Key_1 <= event.key && event.key < Qt.Key_1 + Viewer3DSettings.renderModes.length) {
+                Viewer3DSettings.renderMode = event.key - Qt.Key_1
+            } else {
                 event.accepted = false
             }
         }
@@ -114,22 +107,6 @@ FocusScope {
                 upVector: defaultCamUpVector
                 viewCenter: defaultCamViewCenter
                 aspectRatio: width/height
-
-                Behavior on viewCenter {
-                    Vector3dAnimation { duration: 250 }
-                }
-                Behavior on position {
-                    Vector3dAnimation { duration: 250 }
-                }
-
-                // Scene light, attached to the camera
-                Entity {
-                    components: [
-                        PointLight {
-                            color: "white"
-                        }
-                    ]
-                }
             }
 
             ViewpointCamera {
@@ -137,6 +114,15 @@ FocusScope {
                 enabled: cameraSelector.camera === camera
                 viewpoint: root.viewpoint
                 camera.aspectRatio: width/height
+            }
+
+            Entity {
+                components: [
+                    DirectionalLight{
+                        color: "white"
+                        worldDirection: Transformations3DHelper.getRotatedCameraViewVector(cameraSelector.camera.viewVector, cameraSelector.camera.upVector, directionalLightPane.lightPitchValue, directionalLightPane.lightYawValue).normalized()
+                    }
+                ]
             }
 
             TrackballGizmo {
@@ -166,37 +152,21 @@ FocusScope {
 
                 camera: mainCamera
                 focus: scene3D.activeFocus
-                onMousePressed: {
+                onMousePressed: function(mouse) {
                     scene3D.forceActiveFocus()
-                    if(mouse.button == Qt.LeftButton)
-                    {
-                        if(!doubleClickTimer.running)
-                            doubleClickTimer.restart()
-                    }
-                    else
-                        doubleClickTimer.stop()
                 }
-                onMouseReleased: {
-                    if(moving)
+                onMouseReleased: function(mouse, moved) {
+                    if (moving)
                         return
-                    if(!moved && mouse.button == Qt.RightButton)
-                    {
+                    if (!moved && mouse.button === Qt.RightButton) {
                         contextMenu.popup()
                     }
-                }
-
-                // Manually handle double click to activate object picking
-                // for camera re-centering only during a short amount of time
-                Timer {
-                    id: doubleClickTimer
-                    running: false
-                    interval: 300
                 }
             }
 
             components: [
                 RenderSettings {
-                    pickingSettings.pickMethod: PickingSettings.PrimitivePicking  // enables point/edge/triangle picking
+                    pickingSettings.pickMethod: PickingSettings.PrimitivePicking  // Enables point/edge/triangle picking
                     pickingSettings.pickResultMode: PickingSettings.NearestPick
                     renderPolicy: RenderSettings.Always
 
@@ -213,10 +183,6 @@ FocusScope {
                                         buffers : ClearBuffers.ColorDepthBuffer
                                         RenderStateSet {
                                             renderStates: [
-                                                PointSize {
-                                                    sizeMode: Viewer3DSettings.fixedPointSize ? PointSize.Fixed : PointSize.Programmable
-                                                    value: Viewer3DSettings.pointSize
-                                                },
                                                 DepthTest { depthFunction: DepthTest.Less }
                                             ]
                                         }
@@ -244,8 +210,8 @@ FocusScope {
                 id: mediaLibrary
                 renderMode: Viewer3DSettings.renderMode
                 // Picking to set focus point (camera view center)
-                // Only activate it when a double click may happen or when the 'Control' key is pressed
-                pickingEnabled: cameraController.pickingActive || doubleClickTimer.running
+                // Only activate it when the 'Control' key is pressed
+                pickingEnabled: cameraController.pickingActive
                 camera: cameraSelector.camera
 
                 // Used for TransformGizmo in BoundingBox
@@ -259,12 +225,10 @@ FocusScope {
                     }
                 ]
 
-                onPressed: {
-                    if(pick.button == Qt.LeftButton)
-                    {
-                        mainCamera.viewCenter = pick.worldIntersection;
+                onClicked: function(pick) {
+                    if (pick.button === Qt.LeftButton) {
+                        mainCamera.viewCenter = pick.worldIntersection
                     }
-                    doubleClickTimer.stop();
                 }
 
             }
@@ -284,7 +248,7 @@ FocusScope {
         sourceComponent: ImageOverlay {
             id: imageOverlay
             source: root.viewpoint.undistortedImageSource
-            imageRatio: root.viewpoint.orientedImageSize.width / root.viewpoint.orientedImageSize.height
+            imageRatio: root.viewpoint.orientedImageSize.width * root.viewpoint.pixelAspectRatio / root.viewpoint.orientedImageSize.height
             uvCenterOffset: root.viewpoint.uvCenterOffset
             showFrame: Viewer3DSettings.showViewpointImageFrame
             imageOpacity: Viewer3DSettings.viewpointImageOverlayOpacity
@@ -311,7 +275,11 @@ FocusScope {
             columns: 2
             rowSpacing: 0
 
-            RadioButton { text: "SHL File"; autoExclusive: true; checked: true }
+            RadioButton {
+                text: "SHL File"
+                autoExclusive: true
+                checked: true
+            }
             TextField {
                 text: Viewer3DSettings.shlFile
                 selectByMouse: true
@@ -344,10 +312,21 @@ FocusScope {
                     font.pointSize: 11
                     onClicked: Viewer3DSettings.renderMode = index
                     checked: Viewer3DSettings.renderMode === index
-                    checkable: !checked // hack to disabled check on toggle
+                    checkable: !checked  // Hack to disabled check on toggle
                 }
             }
         }
+    }
+
+    // Directional light controller
+    DirectionalLightPane {
+        id: directionalLightPane
+        anchors {
+            bottom: parent.bottom
+            right: parent.right
+            margins: 2
+        }
+        visible: Viewer3DSettings.displayLightController
     }
 
     // Menu

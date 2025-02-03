@@ -1,8 +1,9 @@
-import QtQuick 2.11
-import QtQuick.Controls 2.0
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
 import Controls 1.0
+import MaterialIcons 2.2
 import Utils 1.0
 
 FloatingPane {
@@ -26,12 +27,12 @@ FloatingPane {
     background: Rectangle { color: root.palette.window }
 
     function updateDownscaleValue(level) {
-        downscaleSpinBox.value = level;
+        downscaleSpinBox.value = level
     }
 
     DoubleValidator {
         id: doubleValidator
-        locale: 'C' // use '.' decimal separator disregarding of the system locale
+        locale: 'C'  // Use '.' decimal separator disregarding of the system locale
     }
 
     RowLayout {
@@ -79,7 +80,7 @@ FloatingPane {
                 ToolTip.text: "Reset Subdivisions"
 
                 onClicked: {
-                    subdivisionsCtrl.value = subdivisionsDefaultValue;
+                    subdivisionsCtrl.value = subdivisionsDefaultValue
                 }
             }
             TextField {
@@ -119,7 +120,7 @@ FloatingPane {
                 ToolTip.text: "Reset the mouse multiplier"
 
                 onClicked: {
-                    speedSpinBox.value = 1;
+                    speedSpinBox.value = 1
                 }
             }
             SpinBox {
@@ -131,10 +132,9 @@ FloatingPane {
                 Layout.fillWidth: false
                 Layout.maximumWidth: 50
 
-
                 validator: DoubleValidator {
                     bottom: Math.min(speedSpinBox.from, speedSpinBox.to)
-                    top:  Math.max(speedSpinBox.from, speedSpinBox.to)
+                    top: Math.max(speedSpinBox.from, speedSpinBox.to)
                 }
 
                 textFromValue: function(value, locale) {
@@ -152,7 +152,7 @@ FloatingPane {
                 ToolTip.text: "Reset the downscale"
 
                 onClicked: {
-                    downscaleSpinBox.value = downscaleDefaultValue;
+                    downscaleSpinBox.value = downscaleDefaultValue
                 }
             }
             SpinBox {
@@ -164,29 +164,25 @@ FloatingPane {
                 Layout.fillWidth: false
                 Layout.maximumWidth: 50
 
-
                 validator: DoubleValidator {
                     bottom: Math.min(downscaleSpinBox.from, downscaleSpinBox.to)
-                    top:  Math.max(downscaleSpinBox.from, downscaleSpinBox.to)
+                    top: Math.max(downscaleSpinBox.from, downscaleSpinBox.to)
                 }
 
                 textFromValue: function(value, locale) {
-                    if(value === 0){
+                    if (value === 0){
                         return 1
+                    } else {
+                        return "1/" + Math.pow(2, value).toString()
                     }
-                    else{
-                        return "1/" + Math.pow(2,value).toString()
-                    }
-
                 }
             }
         }
-
     }
+
     TextMetrics {
         id: textMetrics_subdivisionsValue
         font: subdivisionsLabel.font
         text: "100.00"
     }
-
 }

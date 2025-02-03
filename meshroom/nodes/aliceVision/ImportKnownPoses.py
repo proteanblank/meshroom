@@ -1,6 +1,7 @@
 __version__ = "1.0"
 
 from meshroom.core import desc
+from meshroom.core.utils import VERBOSE_LEVEL
 
 
 class ImportKnownPoses(desc.AVCommandLineNode):
@@ -13,28 +14,31 @@ class ImportKnownPoses(desc.AVCommandLineNode):
 
     inputs = [
         desc.File(
-            name='sfmData',
-            label='SfmData',
-            description='SfMData file.',
-            value='',
-            uid=[0],
+            name="sfmData",
+            label="SfMData",
+            description="Input SfMData file.",
+            value="",
         ),
         desc.File(
-            name='knownPosesData',
-            label='KnownPosesData',
-            description='KnownPoses data in the json or xmp format',
-            value='',
-            uid=[0],
+            name="knownPosesData",
+            label="Known Poses Data",
+            description="Known poses data in the JSON or XMP format.",
+            value="",
+        ),
+        desc.ChoiceParam(
+            name="verboseLevel",
+            label="Verbose Level",
+            description="Verbosity level (fatal, error, warning, info, debug, trace).",
+            values=VERBOSE_LEVEL,
+            value="info",
         ),
     ]
 
     outputs = [
         desc.File(
-            name='output',
-            label='Output',
-            description='Path to the output smfData file.',
+            name="output",
+            label="Output",
+            description="Path to the output SfMData file.",
             value=desc.Node.internalFolder + "/sfmData.abc",
-            uid=[],
-            ),
+        ),
     ]
-

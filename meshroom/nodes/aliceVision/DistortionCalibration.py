@@ -1,53 +1,64 @@
-__version__ = '2.0'
+__version__ = '5.0'
 
 from meshroom.core import desc
+from meshroom.core.utils import VERBOSE_LEVEL
 
 
 class DistortionCalibration(desc.AVCommandLineNode):
     commandLine = 'aliceVision_distortionCalibration {allParams}'
     size = desc.DynamicNodeSize('input')
 
+    category = 'Other'
     documentation = '''
-    Calibration of a camera/lens couple distortion using a full screen checkerboard
+Calibration of a camera/lens couple distortion using a full screen checkerboard.
 '''
 
     inputs = [
         desc.File(
-            name='input',
-            label='SfmData',
-            description='SfmData File',
-            value='',
-            uid=[0],
+            name="input",
+            label="Input SfMData",
+            description="SfMData file.",
+            value="",
         ),
-        desc.ListAttribute(
-            elementDesc=desc.File(
-                name='lensGridImage',
-                label='Lens Grid Image',
-                description='',
-                value='',
-                uid=[0],
-            ),
-            name='lensGrid',
-            label='Lens Grid Images',
-            description='Lens grid images to estimate the optical distortions.',
+        desc.File(
+            name="checkerboards",
+            label="Checkerboards Folder",
+            description="Folder containing checkerboard JSON files.",
+            value="",
         ),
         desc.ChoiceParam(
-            name='verboseLevel',
-            label='Verbose Level',
-            description='Verbosity level (fatal, error, warning, info, debug, trace).',
-            value='info',
-            values=['fatal', 'error', 'warning', 'info', 'debug', 'trace'],
-            exclusive=True,
-            uid=[],
+            name="undistortionModelName",
+            label="Undistortion Model",
+            description="model used to estimate undistortion.",
+            value="3deanamorphic4",
+            values=["3deanamorphic4", "3declassicld", "3deradial4"],
+        ),
+        desc.BoolParam(
+            name="handleSqueeze",
+            label="Handle Squeeze",
+            description="Estimate squeeze.",
+            value=True,
+        ),
+        desc.BoolParam(
+            name="isDesqueezed",
+            label="Is Desqueezed",
+            description="True if the input image is already desqueezed.",
+            value=False,
+        ),
+        desc.ChoiceParam(
+            name="verboseLevel",
+            label="Verbose Level",
+            description="Verbosity level (fatal, error, warning, info, debug, trace).",
+            values=VERBOSE_LEVEL,
+            value="info",
         ),
     ]
 
     outputs = [
         desc.File(
-            name='outSfMData',
-            label='SfmData File',
-            description='Path to the output sfmData file',
-            value=desc.Node.internalFolder + 'sfmData.sfm',
-            uid=[],
-        )
+            name="output",
+            label="SfMData File",
+            description="Path to the output SfMData file.",
+            value=desc.Node.internalFolder + "sfmData.sfm",
+        ),
     ]

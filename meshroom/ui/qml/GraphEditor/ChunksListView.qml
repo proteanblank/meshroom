@@ -1,15 +1,13 @@
-import QtQuick 2.11
-import QtQuick.Controls 2.3
-import QtQuick.Controls 1.4 as Controls1 // SplitView
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
-import Controls 1.0
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 import "common.js" as Common
 
 /**
  * ChunkListView
  */
+
 ColumnLayout {
     id: root
     property variant chunks
@@ -18,7 +16,7 @@ ColumnLayout {
 
     onChunksChanged: {
         // When the list changes, ensure the current index is in the new range
-        if(currentIndex >= chunks.count)
+        if (currentIndex >= chunks.count)
             currentIndex = chunks.count-1
     }
 
@@ -39,8 +37,7 @@ ColumnLayout {
         focus: true
         currentIndex: root.currentIndex
         onCurrentIndexChanged: {
-            if(chunksLV.currentIndex !== root.currentIndex)
-            {
+            if (chunksLV.currentIndex !== root.currentIndex) {
                 // When the list is resized, the currentIndex is reset to 0.
                 // So here we force it to keep the binding.
                 chunksLV.currentIndex = Qt.binding(function() { return root.currentIndex })
@@ -67,7 +64,7 @@ ColumnLayout {
         }
         highlight: Component {
             Rectangle {
-                visible: true // !root.chunksSummary
+                visible: true  // !root.chunksSummary
                 color: activePalette.highlight
                 opacity: 0.3
                 z: 2
@@ -80,7 +77,7 @@ ColumnLayout {
             id: chunkDelegate
             property var chunk: object
             text: index
-            width: parent.width
+            width: ListView.view.width
             leftPadding: 8
             onClicked: {
                 chunksLV.forceActiveFocus()

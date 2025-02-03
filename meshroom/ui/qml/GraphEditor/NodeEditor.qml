@@ -1,53 +1,78 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.4
-import QtQuick.Controls 1.4 as Controls1 // SplitView
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
-import Controls 1.0
-import Utils 1.0
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
+import Controls 1.0
+import MaterialIcons 2.2
+import Utils 1.0
 
 /**
  * NodeEditor allows to visualize and edit the parameters of a Node.
  * It mainly provides an attribute editor and a log inspector.
  */
+
 Panel {
     id: root
 
     property variant node
+    property string globalStatus : node !== null ? node.globalStatus : ""
     property bool readOnly: false
     property bool isCompatibilityNode: node && node.compatibilityIssue !== undefined
+    property string nodeStartDateTime: ""
 
     signal attributeDoubleClicked(var mouse, var attribute)
     signal upgradeRequest()
 
-    title: "Node" + (node !== null ? " - <b>" + node.label + "</b>" : "")
+    title: "Node" + (node !== null ? " - <b>" + node.label + "</b>" + (node.label !== node.defaultLabel ? " (" + node.defaultLabel + ")" : "") : "")
     icon: MaterialLabel { text: MaterialIcons.tune }
+
+    onGlobalStatusChanged: {
+        nodeStartDateTime = ""
+        if (node !== null && node.isRunning()) {
+            timer.start()
+        }
+        else {
+            timer.stop()
+            if (node !== null && (node.isFinishedOrRunning() || globalStatus == "ERROR")) {
+                computationInfo.text = Format.sec2timeStr(node.elapsedTime)
+            }
+            else {
+                computationInfo.text =  ""
+            }
+        }
+    }
+
+    function refresh() {
+        /**
+         * Refresh properties of the Node Editor.
+         */
+        // Reset tab bar's current index
+        tabBar.currentIndex = 0;
+    }
 
     headerBar: RowLayout {
         Label {
-            text: {
-                if (node !== null && node.isSubmittedOrRunning()) {
-                    // Some chunks might be submitted but they'll all run eventually
-                    if (node.elapsedTime > 0) { // At least a chunk is done running
-                        return "Running for: " + Format.getTimeStr(node.elapsedTime)
-                    } else {
-                        return (node.chunks.count > 1) ? "First chunk running" : "Node running"
+            id: computationInfo
+            color: node && node.isComputable ? Colors.statusColors[node.globalStatus] : palette.text
+            Timer {
+                id: timer
+                interval: 2500
+                triggeredOnStart: true
+                repeat: true
+                running: node !== null && node.isRunning()
+                onTriggered: {
+                    if (nodeStartDateTime === "") {
+                        nodeStartDateTime = new Date(node.getStartDateTime()).getTime()
                     }
-                } else if (node !== null && node.isFinishedOrRunning()) {
-                    /* Either all chunks finished running or the last one is running
-                        * Placed inside an "else if" instead of "else" to avoid entering the functions
-                        * when there is no real use */
-                    return Format.getTimeStr(node.elapsedTime)
-                } else {
-                    return ""
+                    var now = new Date().getTime()
+                    parent.text = Format.sec2timeStr((now-nodeStartDateTime)/1000)
                 }
             }
             padding: 2
             font.italic: true
             visible: {
                 if (node !== null) {
-                    if ((node.isFinishedOrRunning() || node.isSubmittedOrRunning())) {
+                    if (node.isComputable && (node.isFinishedOrRunning() || node.isSubmittedOrRunning() || node.globalStatus=="ERROR")) {
                         return true
                     }
                 }
@@ -58,7 +83,7 @@ Panel {
                 if (node !== null && (node.isFinishedOrRunning() || (node.isSubmittedOrRunning() && node.elapsedTime > 0))) {
                     var longestChunkTime = getLongestChunkTime(node.chunks)
                     if (longestChunkTime > 0)
-                        return "Longest chunk: " + Format.getTimeStr(longestChunkTime) + " (" + node.chunks.count + " chunks)"
+                        return "Longest chunk: " + Format.sec2timeStr(longestChunkTime) + " (" + node.chunks.count + " chunks)"
                     else
                         return ""
                 } else {
@@ -72,8 +97,7 @@ Panel {
                 hoverEnabled: true
             }
 
-            function getLongestChunkTime(chunks)
-            {
+            function getLongestChunkTime(chunks) {
                 if (chunks.count <= 1)
                     return 0
 
@@ -86,6 +110,14 @@ Panel {
             }
         }
 
+        SearchBar {
+            id: searchBar
+            toggle: true  // Enable toggling the actual text field by the search button
+            Layout.minimumWidth: searchBar.width
+            maxWidth: 150
+            enabled: tabBar.currentIndex === 0 || tabBar.currentIndex === 5
+        }
+
         MaterialToolButton {
             text: MaterialIcons.more_vert
             font.pointSize: 11
@@ -96,33 +128,107 @@ Panel {
             Menu {
                 id: settingsMenu
                 y: parent.height
-                MenuItem {
-                    id: advancedToggle
-                    text: "Advanced Attributes"
-                    MaterialLabel {
-                        anchors.right: parent.right; anchors.rightMargin: parent.padding;
-                        text: MaterialIcons.build
-                        anchors.verticalCenter: parent.verticalCenter
-                        font.pointSize: 8
+
+                Menu {
+                    id: filterAttributesMenu
+                    title: "Filter Attributes"
+                    RowLayout {
+                        CheckBox {
+                            id: outputToggle
+                            text: "Output"
+                            checkable: true
+                            checked: GraphEditorSettings.showOutputAttributes
+                            onClicked: GraphEditorSettings.showOutputAttributes = !GraphEditorSettings.showOutputAttributes 
+                            enabled: tabBar.currentIndex === 0
+                        }
+                        CheckBox {
+                            id: inputToggle
+                            text: "Input"
+                            checkable: true
+                            checked: GraphEditorSettings.showInputAttributes
+                            onClicked: GraphEditorSettings.showInputAttributes = !GraphEditorSettings.showInputAttributes 
+                            enabled: tabBar.currentIndex === 0
+                        }
                     }
-                    checkable: true
-                    checked: GraphEditorSettings.showAdvancedAttributes
-                    onClicked: GraphEditorSettings.showAdvancedAttributes = !GraphEditorSettings.showAdvancedAttributes
+
+                    MenuSeparator {}
+
+                    RowLayout {
+                        CheckBox {
+                            id: defaultToggle
+                            text: "Default"
+                            checkable: true
+                            checked: GraphEditorSettings.showDefaultAttributes
+                            onClicked: GraphEditorSettings.showDefaultAttributes = !GraphEditorSettings.showDefaultAttributes 
+                            enabled: tabBar.currentIndex === 0
+                        }
+                        CheckBox {
+                            id: modifiedToggle
+                            text: "Modified"
+                            checkable: true
+                            checked: GraphEditorSettings.showModifiedAttributes
+                            onClicked: GraphEditorSettings.showModifiedAttributes = !GraphEditorSettings.showModifiedAttributes 
+                            enabled: tabBar.currentIndex === 0
+                        }
+                    }
+
+                    MenuSeparator {}
+
+                    RowLayout {
+                        CheckBox {
+                            id: linkToggle
+                            text: "Link"
+                            checkable: true
+                            checked: GraphEditorSettings.showLinkAttributes
+                            onClicked: GraphEditorSettings.showLinkAttributes = !GraphEditorSettings.showLinkAttributes 
+                            enabled: tabBar.currentIndex === 0
+                        }
+                        CheckBox {
+                            id: notLinkToggle
+                            text: "Not Link"
+                            checkable: true
+                            checked: GraphEditorSettings.showNotLinkAttributes
+                            onClicked: GraphEditorSettings.showNotLinkAttributes = !GraphEditorSettings.showNotLinkAttributes 
+                            enabled: tabBar.currentIndex === 0
+                        }
+                    }
+
+                    MenuSeparator {}
+
+                    CheckBox {
+                        id: advancedToggle
+                        text: "Advanced"
+                        MaterialLabel {
+                            anchors.right: parent.right; anchors.rightMargin: parent.padding;
+                            text: MaterialIcons.build
+                            anchors.verticalCenter: parent.verticalCenter
+                            font.pointSize: 8
+                        }
+                        checkable: true
+                        checked: GraphEditorSettings.showAdvancedAttributes
+                        onClicked: GraphEditorSettings.showAdvancedAttributes = !GraphEditorSettings.showAdvancedAttributes
+                    }
                 }
                 MenuItem {
                     text: "Open Cache Folder"
                     enabled: root.node !== null
                     onClicked: Qt.openUrlExternally(Filepath.stringToUrl(root.node.internalFolder))
                 }
+
                 MenuSeparator {}
+
                 MenuItem {
                     enabled: root.node !== null
                     text: "Clear Pending Status"
-                    onClicked: node.clearSubmittedChunks()
+                    onClicked: {
+                        node.clearSubmittedChunks()
+                        timer.stop()
+                    }
                 }
             }
         }
     }
+
     ColumnLayout {
         anchors.fill: parent
 
@@ -130,7 +236,7 @@ Panel {
         Loader {
             active: root.isCompatibilityNode
             Layout.fillWidth: true
-            visible: active  // for layout update
+            visible: active  // For layout update
 
             sourceComponent: CompatibilityBadge {
                 canUpgrade: root.node.canUpgrade
@@ -168,7 +274,7 @@ Panel {
             Component {
                 id: editor_component
 
-                Controls1.SplitView {
+                MSplitView {
                     anchors.fill: parent
 
                     // The list of chunks
@@ -176,22 +282,25 @@ Panel {
                         id: chunksLV
                         visible: (tabBar.currentIndex >= 1 && tabBar.currentIndex <= 3)
                         chunks: root.node.chunks
+                        SplitView.preferredWidth: 55
+                        SplitView.minimumWidth: 20
                     }
 
                     StackLayout {
-                        Layout.fillHeight: true
-                        Layout.fillWidth: true
+                        SplitView.fillWidth: true
 
                         currentIndex: tabBar.currentIndex
 
                         AttributeEditor {
                             id: inOutAttr
+                            objectsHideable: true
                             Layout.fillHeight: true
                             Layout.fillWidth: true
                             model: root.node.attributes
                             readOnly: root.readOnly || root.isCompatibilityNode
-                            onAttributeDoubleClicked: root.attributeDoubleClicked(mouse, attribute)
+                            onAttributeDoubleClicked: function(mouse, attribute) { root.attributeDoubleClicked(mouse, attribute) }
                             onUpgradeRequest: root.upgradeRequest()
+                            filterText: searchBar.text
                         }
 
                         Loader {
@@ -251,12 +360,14 @@ Panel {
 
                         AttributeEditor {
                             id: nodeInternalAttr
+                            objectsHideable: false
                             Layout.fillHeight: true
                             Layout.fillWidth: true
                             model: root.node.internalAttributes
                             readOnly: root.readOnly || root.isCompatibilityNode
-                            onAttributeDoubleClicked: root.attributeDoubleClicked(mouse, attribute)
+                            onAttributeDoubleClicked: function(mouse, attribute) { root.attributeDoubleClicked(mouse, attribute) }
                             onUpgradeRequest: root.upgradeRequest()
+                            filterText: searchBar.text
                         }
                     }
                 }
@@ -265,6 +376,12 @@ Panel {
 
         TabBar {
             id: tabBar
+            visible: root.node !== null
+
+            property bool isComputable: root.node !== null && root.node.isComputable
+
+            // The indices of the tab bar which can be shown for incomputable nodes
+            readonly property var nonComputableTabIndices: [0, 4, 5];
 
             Layout.fillWidth: true
             width: childrenRect.width
@@ -277,16 +394,22 @@ Panel {
                 rightPadding: leftPadding
             }
             TabButton {
+                visible: tabBar.isComputable
+                width: !visible ? 0 : tabBar.width / tabBar.count
                 text: "Log"
                 leftPadding: 8
                 rightPadding: leftPadding
             }
             TabButton {
+                visible: tabBar.isComputable
+                width: !visible ? 0 : tabBar.width / tabBar.count
                 text: "Statistics"
                 leftPadding: 8
                 rightPadding: leftPadding
             }
             TabButton {
+                visible: tabBar.isComputable
+                width: !visible ? 0 : tabBar.width / tabBar.count
                 text: "Status"
                 leftPadding: 8
                 rightPadding: leftPadding
@@ -301,6 +424,14 @@ Panel {
                 padding: 4
                 leftPadding: 8
                 rightPadding: leftPadding
+            }
+
+            onVisibleChanged: {
+                // If we have a node selected and the node is not Computable
+                // Reset the currentIndex to 0, if the current index is not allowed for an incomputable node
+                if ((root.node && !root.node.isComputable) && (nonComputableTabIndices.indexOf(tabBar.currentIndex) === -1)) {
+                    tabBar.currentIndex = 0;
+                }
             }
         }
     }

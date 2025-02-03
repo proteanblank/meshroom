@@ -1,6 +1,6 @@
-from PySide2.QtCore import Signal, Property, QPointF, Qt, QObject
-from PySide2.QtGui import QPainterPath, QVector2D
-from PySide2.QtQuick import QQuickItem
+from PySide6.QtCore import Signal, Property, QPointF, Qt, QObject
+from PySide6.QtGui import QPainterPath, QVector2D
+from PySide6.QtQuick import QQuickItem
 
 
 class MouseEvent(QObject):
@@ -9,15 +9,15 @@ class MouseEvent(QObject):
     """
     def __init__(self, evt):
         super(MouseEvent, self).__init__()
-        self._x = evt.x()
-        self._y = evt.y()
+        self._x = evt.position().x()
+        self._y = evt.position().y()
         self._button = evt.button()
         self._modifiers = evt.modifiers()
 
     x = Property(float, lambda self: self._x, constant=True)
     y = Property(float, lambda self: self._y, constant=True)
     button = Property(Qt.MouseButton, lambda self: self._button, constant=True)
-    modifiers = Property(int, lambda self: self._modifiers, constant=True)
+    modifiers = Property(Qt.KeyboardModifier, lambda self: self._modifiers, constant=True)
 
 
 class EdgeMouseArea(QQuickItem):
@@ -47,8 +47,8 @@ class EdgeMouseArea(QQuickItem):
         self.setContainsMouse(False)
         super(EdgeMouseArea, self).hoverLeaveEvent(evt)
 
-    def geometryChanged(self, newGeometry, oldGeometry):
-        super(EdgeMouseArea, self).geometryChanged(newGeometry, oldGeometry)
+    def geometryChange(self, newGeometry, oldGeometry):
+        super(EdgeMouseArea, self).geometryChange(newGeometry, oldGeometry)
         self.updateShape()
 
     def mousePressEvent(self, evt):

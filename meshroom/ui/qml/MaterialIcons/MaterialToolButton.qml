@@ -1,12 +1,12 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
-
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 /**
  * MaterialToolButton is a standard ToolButton using MaterialIcons font.
  * It also shows up its tooltip when hovered.
  */
+
 ToolButton {
     id: control
     font.family: MaterialIcons.fontFamily
@@ -19,14 +19,13 @@ ToolButton {
     }
     background: Rectangle {
         color: {
-            if(pressed || checked || hovered)
-            {
-                if(pressed || checked)
+            if (enabled && (pressed || checked || hovered)) {
+                if (pressed || checked)
                     return Qt.darker(parent.palette.base, 1.3)
-                if(hovered)
+                if (hovered)
                     return Qt.darker(parent.palette.base, 0.6)
             }
-            return "transparent";
+            return "transparent"
         }
 
         border.color: checked ? Qt.darker(parent.palette.base, 1.4) : "transparent"

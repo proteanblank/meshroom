@@ -2,8 +2,8 @@ import logging
 import traceback
 from contextlib import contextmanager
 
-from PySide2.QtWidgets import QUndoCommand, QUndoStack
-from PySide2.QtCore import Property, Signal
+from PySide6.QtGui import QUndoCommand, QUndoStack
+from PySide6.QtCore import Property, Signal
 
 from meshroom.core.attribute import ListAttribute, Attribute
 from meshroom.core.graph import GraphModification
@@ -156,10 +156,11 @@ class RemoveNodeCommand(GraphCommand):
         self.nodeName = node.getName()
         self.setText("Remove Node {}".format(self.nodeName))
         self.outEdges = {}
+        self.outListAttributes = {}  # maps attribute's key with a tuple containing the name of the list it is connected to and its value
 
     def redoImpl(self):
-        # only keep outEdges since inEdges are serialized in nodeDict
-        _, self.outEdges = self.graph.removeNode(self.nodeName)
+        # keep outEdges (inEdges are serialized in nodeDict so unneeded here) and outListAttributes to be able to recreate the deleted elements in ListAttributes
+        _, self.outEdges, self.outListAttributes = self.graph.removeNode(self.nodeName)
         return True
 
     def undoImpl(self):
@@ -169,6 +170,15 @@ class RemoveNodeCommand(GraphCommand):
             assert (node.getName() == self.nodeName)
             # recreate out edges deleted on node removal
             for dstAttr, srcAttr in self.outEdges.items():
+                # if edges were connected to ListAttributes, recreate their corresponding entry in said ListAttribute
+                # 0 = attribute name, 1 = attribute index, 2 = attribute value
+                if dstAttr in self.outListAttributes.keys():
+                    listAttr = self.graph.attribute(self.outListAttributes[dstAttr][0])
+                    if isinstance(self.outListAttributes[dstAttr][2], list):
+                        listAttr[self.outListAttributes[dstAttr][1]:self.outListAttributes[dstAttr][1]] = self.outListAttributes[dstAttr][2]
+                    else:
+                        listAttr.insert(self.outListAttributes[dstAttr][1], self.outListAttributes[dstAttr][2])
+
                 self.graph.addEdge(self.graph.attribute(srcAttr),
                                    self.graph.attribute(dstAttr))
 
@@ -356,24 +366,24 @@ class ListAttributeRemoveCommand(GraphCommand):
         listAttribute.insert(self.index, self.value)
 
 
-class ClearImagesCommand(GraphCommand):
+class RemoveImagesCommand(GraphCommand):
     def __init__(self, graph, cameraInitNodes, parent=None):
-        super(ClearImagesCommand, self).__init__(graph, parent)
+        super(RemoveImagesCommand, self).__init__(graph, parent)
         self.cameraInits = cameraInitNodes
         self.viewpoints = { cameraInit.name: cameraInit.attribute("viewpoints").getExportValue() for cameraInit in self.cameraInits }
         self.intrinsics = { cameraInit.name: cameraInit.attribute("intrinsics").getExportValue() for cameraInit in self.cameraInits }
-        self.title = "Clear{}Images".format(" " if len(self.cameraInits) == 1 else " All ")
+        self.title = "Remove{}Images".format(" " if len(self.cameraInits) == 1 else " All ")
         self.setText(self.title)
 
     def redoImpl(self):
         for i in range(len(self.cameraInits)):
             # Reset viewpoints
-            self.cameraInits[i].viewpoints.resetValue()
+            self.cameraInits[i].viewpoints.resetToDefaultValue()
             self.cameraInits[i].viewpoints.valueChanged.emit()
             self.cameraInits[i].viewpoints.requestGraphUpdate()
 
             # Reset intrinsics
-            self.cameraInits[i].intrinsics.resetValue()
+            self.cameraInits[i].intrinsics.resetToDefaultValue()
             self.cameraInits[i].intrinsics.valueChanged.emit()
             self.cameraInits[i].intrinsics.requestGraphUpdate()
 
@@ -410,12 +420,13 @@ class UpgradeNodeCommand(GraphCommand):
         self.nodeDict = node.toDict()
         self.nodeName = node.getName()
         self.outEdges = {}
+        self.outListAttributes = {}
         self.setText("Upgrade Node {}".format(self.nodeName))
 
     def redoImpl(self):
         if not self.graph.node(self.nodeName).canUpgrade:
             return False
-        upgradedNode, inEdges, self.outEdges = self.graph.upgradeNode(self.nodeName)
+        upgradedNode, _, self.outEdges, self.outListAttributes = self.graph.upgradeNode(self.nodeName)
         return upgradedNode
 
     def undoImpl(self):
@@ -423,10 +434,20 @@ class UpgradeNodeCommand(GraphCommand):
         self.graph.removeNode(self.nodeName)
         # recreate compatibility node
         with GraphModification(self.graph):
-            node = nodeFactory(self.nodeDict)
+            # We come back from an upgrade, so we enforce uidConflict=True as there was a uid conflict before
+            node = nodeFactory(self.nodeDict, name=self.nodeName, uidConflict=True)
             self.graph.addNode(node, self.nodeName)
             # recreate out edges
             for dstAttr, srcAttr in self.outEdges.items():
+                # if edges were connected to ListAttributes, recreate their corresponding entry in said ListAttribute
+                # 0 = attribute name, 1 = attribute index, 2 = attribute value
+                if dstAttr in self.outListAttributes.keys():
+                    listAttr = self.graph.attribute(self.outListAttributes[dstAttr][0])
+                    if isinstance(self.outListAttributes[dstAttr][2], list):
+                        listAttr[self.outListAttributes[dstAttr][1]:self.outListAttributes[dstAttr][1]] = self.outListAttributes[dstAttr][2]
+                    else:
+                        listAttr.insert(self.outListAttributes[dstAttr][1], self.outListAttributes[dstAttr][2])
+
                 self.graph.addEdge(self.graph.attribute(srcAttr),
                                    self.graph.attribute(dstAttr))
 

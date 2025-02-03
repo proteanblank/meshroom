@@ -1,6 +1,7 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
 import MaterialIcons 2.2
 
 Dialog {
@@ -15,7 +16,7 @@ Dialog {
 
     default property alias children: layout.children
 
-    // the content of this MessageDialog as a string
+    // The content of this MessageDialog as a string
     readonly property string asString: titleLabel.text + "\n\n" + text + "\n" + detailedText + "\n" + helperText + "\n"
 
     /// Return the text content of this dialog as a simple string.
@@ -25,8 +26,8 @@ Dialog {
         return asString
     }
 
-    x: parent.width/2 - width/2
-    y: parent.height/2 - height/2
+    x: parent.width / 2 - width / 2
+    y: parent.height / 2 - height / 2
     modal: true
 
     padding: 15
@@ -39,7 +40,7 @@ Dialog {
         rightPadding: leftPadding
 
         background: Item {
-            // hidden text edit to perform copy in clipboard
+            // Hidden text edit to perform copy in clipboard
             TextEdit {
                 id: textContent
                 visible: false
@@ -83,20 +84,20 @@ Dialog {
             id: textLabel
             font.bold: true
             visible: text != ""
-            onLinkActivated: Qt.openUrlExternally(link)
+            onLinkActivated: function(link) { Qt.openUrlExternally(link) }
         }
         // Detailed text
         Label {
             id: detailedLabel
             text: text
             visible: text != ""
-            onLinkActivated: Qt.openUrlExternally(link)
+            onLinkActivated: function(link) { Qt.openUrlExternally(link) }
         }
         // Additional helper text
         Label {
             id: helperLabel
             visible: text != ""
-            onLinkActivated: Qt.openUrlExternally(link)
+            onLinkActivated: function(link) { Qt.openUrlExternally(link) }
         }
     }
 
@@ -128,5 +129,4 @@ Dialog {
             }
         ]
     }
-
 }

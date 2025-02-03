@@ -1,14 +1,16 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
 import MaterialIcons 2.2
-import Qt.labs.platform 1.0 as Platform // for FileDialog
+import Qt.labs.platform 1.0 as Platform
 
 import Controls 1.0
 
 /**
  * LiveSfMView provides controls for setting up and starting a live reconstruction.
  */
+
 Panel {
     id: root
 
@@ -93,7 +95,7 @@ Panel {
                 enabled: liveSfmManager ? liveSfmManager.running || folderPath.text.trim() != '' : false
                 checked: liveSfmManager ? liveSfmManager.running : false
                 onClicked: {
-                    if(!liveSfmManager.running)
+                    if (!liveSfmManager.running)
                         liveSfmManager.start(folderPath.text, minImg_SB.value)
                     else
                         liveSfmManager.stop()

@@ -1,11 +1,14 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 import Utils 1.0
 import MaterialIcons 2.2
 
 
-/// Meshroom "About" window
+/**
+ * Meshroom "About" window
+ */
+
 Dialog {
     id: root
 
@@ -14,13 +17,17 @@ Dialog {
 
     // Fade in transition
     enter: Transition {
-        NumberAnimation { property: "opacity"; from: 0.0; to: 1.0 }
+        NumberAnimation {
+            property: "opacity"
+            from: 0.0
+            to: 1.0
+        }
     }
 
     modal: true
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
     padding: 30
-    topPadding: 0  // header provides top padding
+    topPadding: 0  // Header provides top padding
 
     header: Pane {
         background: Item {}
@@ -52,7 +59,8 @@ Dialog {
                 selectByMouse: true
                 text: "Version " + Qt.application.version + "\n"
                       + MeshroomApp.systemInfo["platform"] + " \n"
-                      + MeshroomApp.systemInfo["python"]
+                      + MeshroomApp.systemInfo["python"] + "\n"
+                      + MeshroomApp.systemInfo["pyside"]
             }
         }
 
@@ -63,46 +71,42 @@ Dialog {
             spacing: 4
             Layout.alignment: Qt.AlignHCenter
             MaterialToolButton {
-                text: MaterialIcons._public
+                text: MaterialIcons.public_
                 font.pointSize: 21
-                palette.buttonText: root.palette.link
                 ToolTip.text: "AliceVision Website"
                 onClicked: Qt.openUrlExternally("https://alicevision.org")
             }
             MaterialToolButton {
                 text: MaterialIcons.favorite
                 font.pointSize: 21
-                palette.buttonText: root.palette.link
                 ToolTip.text: "Donate to get a better software"
                 onClicked: Qt.openUrlExternally("https://alicevision.org/association/#donate")
             }
             ToolButton {
-                icon.source: "../img/GitHub-Mark-Light-32px.png"
+                icon.source: "../img/github-mark-white.svg"
                 icon.width: 24
                 icon.height: 24
+                icon.color: palette.text
                 ToolTip.text: "Meshroom on Github"
                 ToolTip.visible: hovered
-                onClicked: Qt.openUrlExternally("https://github.com/alicevision/meshroom")
+                onClicked: Qt.openUrlExternally("https://github.com/alicevision/Meshroom")
             }
             MaterialToolButton {
                 text: MaterialIcons.bug_report
                 font.pointSize: 21
                 ToolTip.text: "Report a Bug (GitHub account required)"
-                palette.buttonText: "#F44336"
-                property string body: "**Configuration**\n" + config.text
-                onClicked: Qt.openUrlExternally("https://github.com/alicevision/meshroom/issues/new?body="+body)
+                property string body: "**Configuration**\n\n" + config.text
+                onClicked: Qt.openUrlExternally("https://github.com/alicevision/Meshroom/issues/new?body="+body)
             }
             MaterialToolButton {
                 text: MaterialIcons.forum
                 font.pointSize: 21
-                palette.buttonText: Qt.lighter(systemPalette.buttonText, 1.3)
                 ToolTip.text: "Public Mailing-List (open discussions, use-cases, problems, best practices...)"
                 onClicked: Qt.openUrlExternally("https://groups.google.com/forum/#!forum/alicevision")
             }
             MaterialToolButton {
                 text: MaterialIcons.mail
                 font.pointSize: 21
-                palette.buttonText: Qt.lighter(systemPalette.buttonText, 1.3)
                 ToolTip.text: "Private Contact (alicevision-team@googlegroups.com)"
                 onClicked: Qt.openUrlExternally("mailto:alicevision-team@googlegroups.com")
             }
@@ -118,7 +122,7 @@ Dialog {
                 font.pointSize: 10
             }
             Label {
-                text: "2010-2023 AliceVision contributors"
+                text: "2010-2025 AliceVision contributors"
             }
         }
 
@@ -170,17 +174,17 @@ Dialog {
                     sourceComponent: ScrollView {
 
                         Component.onCompleted: {
-                            // try to load the local file
+                            // Try to load the local file
                             var url = Filepath.stringToUrl(modelData.localUrl)
-                            // fallback to the online url if file is not found
-                            if(!Filepath.exists(url))
+                            // Fallback to the online url if file is not found
+                            if (!Filepath.exists(url))
                                 url = modelData.onlineUrl
                             Request.get(url,
-                                        function(xhr){
-                                            if(xhr.readyState === XMLHttpRequest.DONE)
+                                        function(xhr) {
+                                            if (xhr.readyState === XMLHttpRequest.DONE)
                                             {
-                                                // status is OK
-                                                if(xhr.status === 200)
+                                                // Status is OK
+                                                if (xhr.status === 200)
                                                     textArea.text = MeshroomApp.markdownToHtml(xhr.responseText)
                                                 else
                                                     textArea.text = "Could not load license file. Available online at <a href='" + url + "'>"+ url + "</a>."
@@ -193,11 +197,12 @@ Dialog {
                         TextArea {
                             id: textArea
                             readOnly: true
+                            implicitWidth: parent.implicitWidth
                             selectByMouse: true
                             selectByKeyboard: true
                             wrapMode: TextArea.WrapAnywhere
                             textFormat: TextEdit.RichText
-                            onLinkActivated: Qt.openUrlExternally(link)
+                            onLinkActivated: function(link) { Qt.openUrlExternally(link) }
                         }
                     }
                 }

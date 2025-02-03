@@ -1,7 +1,7 @@
-import QtQuick 2.11
-import Utils 1.0
+import QtQuick
 
 import AliceVision 1.0 as AliceVision
+import Utils 1.0
 
 /**
  * FloatImage displays an Image with gamma / offset / channel controls
@@ -11,35 +11,37 @@ import AliceVision 1.0 as AliceVision
 AliceVision.FloatImageViewer {
     id: root
 
-    width: textureSize.width
-    height: textureSize.height
-    visible: (status === Image.Ready)
+    width: sourceSize.width
+    height: sourceSize.height
+    visible: true
 
-    // paintedWidth / paintedHeight / status for compatibility with standard Image
-    property int paintedWidth: textureSize.width
-    property int paintedHeight: textureSize.height
-    property var status: {
-        if(root.loading)
-            return Image.Loading;
-        else if((root.source === "") ||
-                (root.sourceSize.height <= 0) ||
-                (root.sourceSize.width <= 0))
-            return Image.Null;
+    // paintedWidth / paintedHeight / imageStatus for compatibility with standard Image
+    property int paintedWidth: sourceSize.width
+    property int paintedHeight: sourceSize.height
+    property var imageStatus: {
+        if (root.status === AliceVision.FloatImageViewer.EStatus.LOADING) {
+            return Image.Loading
+        } else if (root.status === AliceVision.FloatImageViewer.EStatus.LOADING_ERROR ||
+                   root.status === AliceVision.FloatImageViewer.EStatus.MISSING_FILE ||
+                   root.status === AliceVision.FloatImageViewer.EStatus.OUTDATED_LOADING) {
+            return Image.Error
+        } else if ((root.source === "") || (root.sourceSize.height <= 0) || (root.sourceSize.width <= 0)) {
+            return Image.Null
+        }
 
-        return Image.Ready;
+        return Image.Ready
     }
 
     onStatusChanged: {
         if (viewerTypeString === "panorama") {
-            var activeNode = _reconstruction.activeNodes.get('SfMTransform').node;
+            var activeNode = _reconstruction.activeNodes.get('SfMTransform').node
         }
         root.surface.setIdView(idView);
     }
 
     property string channelModeString : "rgba"
     channelMode: {
-        switch(channelModeString)
-        {
+        switch (channelModeString) {
             case "rgb": return AliceVision.FloatImageViewer.EChannelMode.RGB
             case "r": return AliceVision.FloatImageViewer.EChannelMode.R
             case "g": return AliceVision.FloatImageViewer.EChannelMode.G
@@ -51,8 +53,7 @@ AliceVision.FloatImageViewer {
 
     property string viewerTypeString : "hdr"
     surface.viewerType: {
-        switch(viewerTypeString)
-        {
+        switch (viewerTypeString) {
             case "hdr": return AliceVision.Surface.EViewerType.HDR;
             case "distortion": return AliceVision.Surface.EViewerType.DISTORTION;
             case "panorama": return AliceVision.Surface.EViewerType.PANORAMA;
@@ -60,12 +61,11 @@ AliceVision.FloatImageViewer {
         }
     }
 
-    property int pointsNumber: (surface.subdivisions + 1) * (surface.subdivisions + 1);
+    property int pointsNumber: (surface.subdivisions + 1) * (surface.subdivisions + 1)
 
-    property int index: 0;
-    property var idView: 0;
+    property int idView: 0;
 
-    clearBeforeLoad: true
+    clearBeforeLoad: false
 
     property alias containsMouse: mouseArea.containsMouse
     property alias mouseX: mouseArea.mouseX
@@ -79,35 +79,34 @@ AliceVision.FloatImageViewer {
     }
 
     function isMouseOver(mx, my) {
-        return root.surface.isMouseInside(mx, my);
+        return root.surface.isMouseInside(mx, my)
     }
 
     function getMouseCoordinates(mx, my) {
         if (isMouseOver(mx, my)) {
             root.surface.mouseOver = true
-            return true;
+            return true
         } else {
             root.surface.mouseOver = false
-            return false;
+            return false
         }
     }
 
-    function onChangedHighlightState(isHighlightable){
+    function onChangedHighlightState(isHighlightable) {
         if (!isHighlightable) root.surface.mouseOver = false
     }
-
 
     /*
     * Principal Point
     */
 
     function updatePrincipalPoint() {
-        var pp = root.surface.getPrincipalPoint();
-        ppRect.x = pp.x;
-        ppRect.y = pp.y;
+        var pp = root.surface.getPrincipalPoint()
+        ppRect.x = pp.x
+        ppRect.y = pp.y
     }
 
-    property bool isPrincipalPointsDisplayed : false;
+    property bool isPrincipalPointsDisplayed : false
 
     Item {
         id: principalPoint

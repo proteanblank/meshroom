@@ -1,5 +1,5 @@
-import QtQuick 2.11
-import QtQuick.Layouts 1.3
+import QtQuick
+import QtQuick.Layouts
 
 import Controls 1.0
 
@@ -11,7 +11,6 @@ FloatingPane {
     clip: true
     padding: 4
     anchors.rightMargin: 0
-
 
     ColumnLayout {
         anchors.fill: parent
@@ -30,13 +29,11 @@ FloatingPane {
 
                 Rectangle {
                     id: cell
-                    width: root.width / grid.columns - grid.spacing * (grid.columns+1) / grid.columns
-                    height: root.height / grid.rows - grid.spacing * (grid.rows+1) / grid.rows
+                    width: root.width / grid.columns - grid.spacing * (grid.columns + 1) / grid.columns
+                    height: root.height / grid.rows - grid.spacing * (grid.rows + 1) / grid.rows
                     color: Qt.rgba(modelData.r, modelData.g, modelData.b, 1.0)
                 }
-
             }
         }
     }
-
 }

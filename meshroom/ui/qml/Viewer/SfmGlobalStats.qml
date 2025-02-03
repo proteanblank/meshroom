@@ -1,17 +1,12 @@
-import QtQuick 2.9
-import QtQuick.Controls 2.3
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
-import QtPositioning 5.8
-import QtLocation 5.9
-import QtCharts 2.13
-import Charts 1.0
-
-import Controls 1.0
-import Utils 1.0
+import QtCharts
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 import AliceVision 1.0 as AliceVision
-
+import Charts 1.0
+import Controls 1.0
+import Utils 1.0
 
 FloatingPane {
     id: root
@@ -107,7 +102,6 @@ FloatingPane {
         anchors.leftMargin: residualsPerViewChart.width * 0.25
 
         RowLayout {
-
             ChartViewCheckBox {
                 id: allObservations
                 text: "ALL"
@@ -115,9 +109,8 @@ FloatingPane {
                 checkState: residualsPerViewLegend.buttonGroup.checkState
                 onClicked: {
                     var _checked = checked;
-                    for(var i = 0; i < residualsPerViewChart.count; ++i)
-                    {
-                        residualsPerViewChart.series(i).visible = _checked;
+                    for (var i = 0; i < residualsPerViewChart.count; ++i) {
+                        residualsPerViewChart.series(i).visible = _checked
                     }
                 }
             }
@@ -206,7 +199,6 @@ FloatingPane {
         anchors.leftMargin: observationsLengthsPerViewChart.width * 0.25
 
         RowLayout {
-
             ChartViewCheckBox {
                 id: allModes
                 text: "ALL"
@@ -214,9 +206,8 @@ FloatingPane {
                 checkState: observationsLengthsPerViewLegend.buttonGroup.checkState
                 onClicked: {
                     var _checked = checked;
-                    for(var i = 0; i < observationsLengthsPerViewChart.count; ++i)
-                    {
-                        observationsLengthsPerViewChart.series(i).visible = _checked;
+                    for (var i = 0; i < observationsLengthsPerViewChart.count; ++i) {
+                        observationsLengthsPerViewChart.series(i).visible = _checked
                     }
                 }
             }
@@ -225,7 +216,6 @@ FloatingPane {
                 id: observationsLengthsPerViewLegend
                 chartView: observationsLengthsPerViewChart
             }
-
         }
     }
 
@@ -278,7 +268,6 @@ FloatingPane {
         anchors.leftMargin: landmarksPerViewChart.width * 0.25
 
         RowLayout {
-
             ChartViewCheckBox {
                 id: allFeatures
                 text: "ALL"
@@ -286,9 +275,8 @@ FloatingPane {
                 checkState: landmarksFeatTracksPerViewLegend.buttonGroup.checkState
                 onClicked: {
                     var _checked = checked;
-                    for(var i = 0; i < landmarksPerViewChart.count; ++i)
-                    {
-                        landmarksPerViewChart.series(i).visible = _checked;
+                    for (var i = 0; i < landmarksPerViewChart.count; ++i) {
+                        landmarksPerViewChart.series(i).visible = _checked
                     }
                 }
             }
@@ -297,7 +285,6 @@ FloatingPane {
                 id: landmarksFeatTracksPerViewLegend
                 chartView: landmarksPerViewChart
             }
-
         }
     }
 
@@ -308,20 +295,20 @@ FloatingPane {
         mTracks: root.mTracks
 
         onAxisChanged: {
-            fillLandmarksPerViewSerie(landmarksPerViewLineSerie);
-            fillTracksPerViewSerie(tracksPerViewLineSerie);
-            fillResidualsMinPerViewSerie(residualsMinPerViewLineSerie);
-            fillResidualsMaxPerViewSerie(residualsMaxPerViewLineSerie);
-            fillResidualsMeanPerViewSerie(residualsMeanPerViewLineSerie);
-            fillResidualsMedianPerViewSerie(residualsMedianPerViewLineSerie);
-            fillResidualsFirstQuartilePerViewSerie(residualsFirstQuartilePerViewLineSerie);
-            fillResidualsThirdQuartilePerViewSerie(residualsThirdQuartilePerViewLineSerie);
-            fillObservationsLengthsMinPerViewSerie(observationsLengthsMinPerViewLineSerie);
-            fillObservationsLengthsMaxPerViewSerie(observationsLengthsMaxPerViewLineSerie);
-            fillObservationsLengthsMeanPerViewSerie(observationsLengthsMeanPerViewLineSerie);
-            fillObservationsLengthsMedianPerViewSerie(observationsLengthsMedianPerViewLineSerie);
-            fillObservationsLengthsFirstQuartilePerViewSerie(observationsLengthsFirstQuartilePerViewLineSerie);
-            fillObservationsLengthsThirdQuartilePerViewSerie(observationsLengthsThirdQuartilePerViewLineSerie);
+            fillLandmarksPerViewSerie(landmarksPerViewLineSerie)
+            fillTracksPerViewSerie(tracksPerViewLineSerie)
+            fillResidualsMinPerViewSerie(residualsMinPerViewLineSerie)
+            fillResidualsMaxPerViewSerie(residualsMaxPerViewLineSerie)
+            fillResidualsMeanPerViewSerie(residualsMeanPerViewLineSerie)
+            fillResidualsMedianPerViewSerie(residualsMedianPerViewLineSerie)
+            fillResidualsFirstQuartilePerViewSerie(residualsFirstQuartilePerViewLineSerie)
+            fillResidualsThirdQuartilePerViewSerie(residualsThirdQuartilePerViewLineSerie)
+            fillObservationsLengthsMinPerViewSerie(observationsLengthsMinPerViewLineSerie)
+            fillObservationsLengthsMaxPerViewSerie(observationsLengthsMaxPerViewLineSerie)
+            fillObservationsLengthsMeanPerViewSerie(observationsLengthsMeanPerViewLineSerie)
+            fillObservationsLengthsMedianPerViewSerie(observationsLengthsMedianPerViewLineSerie)
+            fillObservationsLengthsFirstQuartilePerViewSerie(observationsLengthsFirstQuartilePerViewLineSerie)
+            fillObservationsLengthsThirdQuartilePerViewSerie(observationsLengthsThirdQuartilePerViewLineSerie)
         }
     }
 }

@@ -14,13 +14,14 @@ import meshroom
 import meshroom.core
 from meshroom.common import BaseObject, DictModel, Slot, Signal, Property
 from meshroom.core import Version
-from meshroom.core.attribute import Attribute, ListAttribute
-from meshroom.core.exception import StopGraphVisit, StopBranchVisit
+from meshroom.core.attribute import Attribute, ListAttribute, GroupAttribute
+from meshroom.core.exception import GraphCompatibilityError, StopGraphVisit, StopBranchVisit
 from meshroom.core.node import nodeFactory, Status, Node, CompatibilityNode
 
 # Replace default encoder to support Enums
 
 DefaultJSONEncoder = json.JSONEncoder  # store the original one
+
 
 class MyJSONEncoder(DefaultJSONEncoder):  # declare a new one with Enum support
     def default(self, obj):
@@ -166,7 +167,7 @@ class Graph(BaseObject):
 
     class IO(object):
         """ Centralize Graph file keys and IO version. """
-        __version__ = "1.1"
+        __version__ = "2.0"
 
         class Keys(object):
             """ File Keys. """
@@ -204,13 +205,17 @@ class Graph(BaseObject):
                              Graph.IO.Features.NodesVersions,
                              Graph.IO.Features.PrecomputedOutputs,
                              ]
+
             if fileVersion >= Version("1.1"):
                 features += [Graph.IO.Features.NodesPositions]
+
             return tuple(features)
 
     def __init__(self, name, parent=None):
         super(Graph, self).__init__(parent)
         self.name = name
+        self._loading = False
+        self._saving = False
         self._updateEnabled = True
         self._updateRequested = False
         self.dirtyTopology = False
@@ -218,11 +223,13 @@ class Graph(BaseObject):
         self._computationBlocked = {}
         self._canComputeLeaves = True
         self._nodes = DictModel(keyAttrName='name', parent=self)
-        self._edges = DictModel(keyAttrName='dst', parent=self)  # use dst attribute as unique key since it can only have one input connection
+        # Edges: use dst attribute as unique key since it can only have one input connection
+        self._edges = DictModel(keyAttrName='dst', parent=self)
         self._importedNodes = DictModel(keyAttrName='name', parent=self)
         self._compatibilityNodes = DictModel(keyAttrName='name', parent=self)
         self.cacheDir = meshroom.core.defaultCacheFolder
         self._filepath = ''
+        self._fileDateVersion = 0
         self.header = {}
 
     def clear(self):
@@ -234,16 +241,27 @@ class Graph(BaseObject):
             node.alive = False
         self._importedNodes.clear()
         self._nodes.clear()
+        self._unsetFilepath()
 
     @property
     def fileFeatures(self):
         """ Get loaded file supported features based on its version. """
         return Graph.IO.getFeaturesForVersion(self.header.get(Graph.IO.Keys.FileVersion, "0.0"))
 
+    @property
+    def isLoading(self):
+        """ Return True if the graph is currently being loaded. """
+        return self._loading
+    
+    @property
+    def isSaving(self):
+        """ Return True if the graph is currently being saved. """
+        return self._saving
+
     @Slot(str)
     def load(self, filepath, setupProjectFile=True, importProject=False, publishOutputs=False):
         """
-        Load a meshroom graph ".mg" file.
+        Load a Meshroom graph ".mg" file.
 
         Args:
             filepath: project filepath to load
@@ -253,12 +271,39 @@ class Graph(BaseObject):
                            of opened.
             publishOutputs: True if "Publish" nodes from templates should not be ignored.
         """
+        self._loading = True
+        try:
+            return self._load(filepath, setupProjectFile, importProject, publishOutputs)
+        finally:
+            self._loading = False
+
+    def _load(self, filepath, setupProjectFile, importProject, publishOutputs):
         if not importProject:
             self.clear()
         with open(filepath) as jsonFile:
             fileData = json.load(jsonFile)
 
-        # older versions of Meshroom files only contained the serialized nodes
+        self.header = fileData.get(Graph.IO.Keys.Header, {})
+
+        fileVersion = self.header.get(Graph.IO.Keys.FileVersion, "0.0")
+        # Retro-compatibility for all project files with the previous UID format
+        if Version(fileVersion) < Version("2.0"):
+            # For internal folders, all "{uid0}" keys should be replaced with "{uid}"
+            updatedFileData = json.dumps(fileData).replace("{uid0}", "{uid}")
+
+            # For fileVersion < 2.0, the nodes' UID is stored as:
+            # "uids": {"0": "hashvalue"}
+            # These should be identified and replaced with:
+            # "uid": "hashvalue"
+            uidPattern = re.compile(r'"uids": \{"0":.*?\}')
+            uidOccurrences = uidPattern.findall(updatedFileData)
+            for occ in uidOccurrences:
+                uid = occ.split("\"")[-2]  # UID is second to last element
+                newUidStr = r'"uid": "{}"'.format(uid)
+                updatedFileData = updatedFileData.replace(occ, newUidStr)
+            fileData = json.loads(updatedFileData)
+
+        # Older versions of Meshroom files only contained the serialized nodes
         graphData = fileData.get(Graph.IO.Keys.Graph, fileData)
 
         if importProject:
@@ -268,10 +313,11 @@ class Graph(BaseObject):
         if not isinstance(graphData, dict):
             raise RuntimeError('loadGraph error: Graph is not a dict. File: {}'.format(filepath))
 
-        self.header = fileData.get(Graph.IO.Keys.Header, {})
         nodesVersions = self.header.get(Graph.IO.Keys.NodesVersions, {})
 
-        # check whether the file was saved as a template in minimal mode
+        self._fileDateVersion = os.path.getmtime(filepath)
+
+        # Check whether the file was saved as a template in minimal mode
         isTemplate = self.header.get("template", False)
 
         with GraphModification(self):
@@ -307,8 +353,53 @@ class Graph(BaseObject):
                 # Update filepath related members
                 # Note: needs to be done at the end as it will trigger an updateInternals.
                 self._setFilepath(filepath)
+            elif not isTemplate:
+                # If no filepath is being set but the graph is not a template, trigger an updateInternals either way.
+                self.updateInternals()
+
+            # By this point, the graph has been fully loaded and an updateInternals has been triggered, so all the
+            # nodes' links have been resolved and their UID computations are all complete.
+            # It is now possible to check whether the UIDs stored in the graph file for each node correspond to the ones
+            # that were computed.
+            if not isTemplate:  # UIDs are not stored in templates
+                self._evaluateUidConflicts(graphData)
+                try:
+                    self._applyExpr()
+                except Exception as e:
+                    logging.warning(e)
 
         return True
+
+    def _evaluateUidConflicts(self, data):
+        """
+        Compare the UIDs of all the nodes in the graph with the UID that is expected in the graph file. If there
+        are mismatches, the nodes with the unexpected UID are replaced with "UidConflict" compatibility nodes.
+        Already existing nodes are removed and re-added to the graph identically to preserve all the edges,
+        which may otherwise be invalidated when a node with output edges but a UID conflict is re-generated as a
+        compatibility node.
+
+        Args:
+            data (dict): the dictionary containing all the nodes to import and their data
+        """
+        for nodeName, nodeData in sorted(data.items(), key=lambda x: self.getNodeIndexFromName(x[0])):
+            node = self.node(nodeName)
+
+            savedUid = nodeData.get("uid", None)
+            graphUid = node._uid  # Node's UID from the graph itself
+
+            if savedUid != graphUid and graphUid is not None:
+                # Different UIDs, remove the existing node from the graph and replace it with a CompatibilityNode
+                logging.debug("UID conflict detected for {}".format(nodeName))
+                self.removeNode(nodeName)
+                n = nodeFactory(nodeData, nodeName, template=False, uidConflict=True)
+                self._addNode(n, nodeName)
+            else:
+                # f connecting nodes have UID conflicts and are removed/re-added to the graph, some edges may be lost:
+                # the links will be erroneously updated, and any further resolution will fail.
+                # Recreating the entire graph as it was ensures that all edges will be correctly preserved.
+                self.removeNode(nodeName)
+                n = nodeFactory(nodeData, nodeName, template=False, uidConflict=False)
+                self._addNode(n, nodeName)
 
     def updateImportedProject(self, data):
         """
@@ -504,16 +595,20 @@ class Graph(BaseObject):
             skippedEdges = {}
             if not withEdges:
                 for n, attr in node.attributes.items():
+                    if attr.isOutput:
+                        # edges are declared in input with an expression linking
+                        # to another param (which could be an output)
+                        continue
                     # find top-level links
                     if Attribute.isLinkExpression(attr.value):
                         skippedEdges[attr] = attr.value
-                        attr.resetValue()
+                        attr.resetToDefaultValue()
                     # find links in ListAttribute children
-                    elif isinstance(attr, ListAttribute):
+                    elif isinstance(attr, (ListAttribute, GroupAttribute)):
                         for child in attr.value:
                             if Attribute.isLinkExpression(child.value):
                                 skippedEdges[child] = child.value
-                                child.resetValue()
+                                child.resetToDefaultValue()
         return node, skippedEdges
 
     def duplicateNodes(self, srcNodes):
@@ -540,6 +635,7 @@ class Graph(BaseObject):
 
             # re-create edges taking into account what has been duplicated
             for attr, linkExpression in duplicateEdges.items():
+                # logging.warning("attr={} linkExpression={}".format(attr.fullName, linkExpression))
                 link = linkExpression[1:-1]  # remove starting '{' and trailing '}'
                 # get source node and attribute name
                 edgeSrcNodeName, edgeSrcAttrName = link.split(".", 1)
@@ -576,6 +672,7 @@ class Graph(BaseObject):
                 attributes = {}
                 attributes.update(data[key].get("inputs", {}))
                 attributes.update(data[key].get("outputs", {}))
+                attributes.update(data[key].get("internalInputs", {}))
 
                 node = Node(nodeType, position=position[positionCnt], **attributes)
                 self._addNode(node, key)
@@ -604,18 +701,45 @@ class Graph(BaseObject):
     @changeTopology
     def removeNode(self, nodeName):
         """
-        Remove the node identified by 'nodeName' from the graph
-        and return in and out edges removed by this operation in two dicts {dstAttr.getFullNameToNode(), srcAttr.getFullNameToNode()}
+        Remove the node identified by 'nodeName' from the graph.
+        Returns:
+            - a dictionary containing the incoming edges removed by this operation:
+                {dstAttr.getFullNameToNode(), srcAttr.getFullNameToNode()}
+            - a dictionary containing the outgoing edges removed by this operation:
+                {dstAttr.getFullNameToNode(), srcAttr.getFullNameToNode()}
+            - a dictionary containing the values, indices and keys of attributes that were connected to a ListAttribute
+                prior to the removal of all edges:
+                {dstAttr.getFullNameToNode(), (dstAttr.root.getFullNameToNode(), dstAttr.index, dstAttr.value)}
         """
         node = self.node(nodeName)
         inEdges = {}
         outEdges = {}
+        outListAttributes = {}
 
         # Remove all edges arriving to and starting from this node
         with GraphModification(self):
+            # Two iterations over the outgoing edges are necessary:
+            # - the first one is used to collect all the information about the edges while they are all there
+            #   (overall context)
+            # - once we have collected all the information, the edges (and perhaps the entries in ListAttributes) can
+            #   actually be removed
+            for edge in self.nodeOutEdges(node):
+                outEdges[edge.dst.getFullNameToNode()] = edge.src.getFullNameToNode()
+
+                if isinstance(edge.dst.root, ListAttribute):
+                    index = edge.dst.root.index(edge.dst)
+                    outListAttributes[edge.dst.getFullNameToNode()] = (edge.dst.root.getFullNameToNode(),
+                                                                       index, edge.dst.value
+                                                                       if edge.dst.value else None)
+
             for edge in self.nodeOutEdges(node):
                 self.removeEdge(edge.dst)
-                outEdges[edge.dst.getFullNameToNode()] = edge.src.getFullNameToNode()
+
+                # Remove the corresponding attributes from the ListAttributes instead of just emptying their values
+                if isinstance(edge.dst.root, ListAttribute):
+                    index = edge.dst.root.index(edge.dst)
+                    edge.dst.root.remove(index)
+
             for edge in self.nodeInEdges(node):
                 self.removeEdge(edge.dst)
                 inEdges[edge.dst.getFullNameToNode()] = edge.src.getFullNameToNode()
@@ -626,7 +750,7 @@ class Graph(BaseObject):
                 self._importedNodes.remove(node)
             self.update()
 
-        return inEdges, outEdges
+        return inEdges, outEdges, outListAttributes
 
     def addNewNode(self, nodeType, name=None, position=None, **kwargs):
         """
@@ -666,22 +790,38 @@ class Graph(BaseObject):
             nodeName (str): the name of the CompatibilityNode to upgrade
 
         Returns:
-            the list of deleted input/output edges
+            - the upgraded (newly created) node
+            - a dictionary containing the incoming edges removed by this operation:
+                {dstAttr.getFullNameToNode(), srcAttr.getFullNameToNode()}
+            - a dictionary containing the outgoing edges removed by this operation:
+                {dstAttr.getFullNameToNode(), srcAttr.getFullNameToNode()}
+            - a dictionary containing the values, indices and keys of attributes that were connected to a ListAttribute
+                prior to the removal of all edges:
+                {dstAttr.getFullNameToNode(), (dstAttr.root.getFullNameToNode(), dstAttr.index, dstAttr.value)}
         """
         node = self.node(nodeName)
         if not isinstance(node, CompatibilityNode):
             raise ValueError("Upgrade is only available on CompatibilityNode instances.")
         upgradedNode = node.upgrade()
         with GraphModification(self):
-            inEdges, outEdges = self.removeNode(nodeName)
+            inEdges, outEdges, outListAttributes = self.removeNode(nodeName)
             self.addNode(upgradedNode, nodeName)
             for dst, src in outEdges.items():
+                # Re-create the entries in ListAttributes that were completely removed during the call to "removeNode"
+                # If they are not re-created first, adding their edges will lead to errors
+                # 0 = attribute name, 1 = attribute index, 2 = attribute value
+                if dst in outListAttributes.keys():
+                    listAttr = self.attribute(outListAttributes[dst][0])
+                    if isinstance(outListAttributes[dst][2], list):
+                        listAttr[outListAttributes[dst][1]:outListAttributes[dst][1]] = outListAttributes[dst][2]
+                    else:
+                        listAttr.insert(outListAttributes[dst][1], outListAttributes[dst][2])
                 try:
                     self.addEdge(self.attribute(src), self.attribute(dst))
                 except (KeyError, ValueError) as e:
                     logging.warning("Failed to restore edge {} -> {}: {}".format(src, dst, str(e)))
 
-        return upgradedNode, inEdges, outEdges
+        return upgradedNode, inEdges, outEdges, outListAttributes
 
     def upgradeAllNodes(self):
         """ Upgrade all upgradable CompatibilityNode instances in the graph. """
@@ -725,7 +865,7 @@ class Graph(BaseObject):
         """
         try:
             return int(name.split('_')[-1])
-        except:
+        except Exception:
             return -1
 
     @staticmethod
@@ -861,7 +1001,8 @@ class Graph(BaseObject):
     def dfs(self, visitor, startNodes=None, longestPathFirst=False):
         # Default direction (visitor.reverse=False): from node to root
         # Reverse direction (visitor.reverse=True): from node to leaves
-        nodeChildren = self._getOutputEdgesPerNode(visitor.dependenciesOnly) if visitor.reverse else self._getInputEdgesPerNode(visitor.dependenciesOnly)
+        nodeChildren = self._getOutputEdgesPerNode(visitor.dependenciesOnly) \
+                       if visitor.reverse else self._getInputEdgesPerNode(visitor.dependenciesOnly)
         # Initialize color map
         colors = {}
         for u in self._nodes:
@@ -870,9 +1011,11 @@ class Graph(BaseObject):
         if longestPathFirst and visitor.reverse:
             # Because we have no knowledge of the node's count between a node and its leaves,
             # it is not possible to handle this case at the moment
-            raise NotImplementedError("Graph.dfs(): longestPathFirst=True and visitor.reverse=True are not compatible yet.")
+            raise NotImplementedError("Graph.dfs(): longestPathFirst=True and visitor.reverse=True are not "
+                                      "compatible yet.")
 
-        nodes = startNodes or (self.getRootNodes(visitor.dependenciesOnly) if visitor.reverse else self.getLeafNodes(visitor.dependenciesOnly))
+        nodes = startNodes or (self.getRootNodes(visitor.dependenciesOnly)
+                               if visitor.reverse else self.getLeafNodes(visitor.dependenciesOnly))
 
         if longestPathFirst:
             # Graph topology must be known and node depths up-to-date
@@ -997,7 +1140,7 @@ class Graph(BaseObject):
                 nodes.append(vertex)  # We could collect specific chunks
 
         def finishEdge(edge, graph):
-            if edge[0].hasStatus(Status.SUCCESS) or edge[1].hasStatus(Status.SUCCESS):
+            if edge[0].isComputed or edge[1].isComputed:
                 return
             edges.append(edge)
 
@@ -1008,9 +1151,10 @@ class Graph(BaseObject):
         return nodes, edges
 
     @Slot(Node, result=bool)
-    def canCompute(self, node):
+    def canComputeTopologically(self, node):
         """
         Return the computability of a node based on itself and its dependency chain.
+        It is a static result as it depends on the graph topology.
         Computation can't happen for:
          - CompatibilityNodes
          - nodes having a non-computed CompatibilityNode in its dependency chain
@@ -1036,7 +1180,7 @@ class Graph(BaseObject):
         self._computationBlocked.clear()
 
         compatNodes = []
-        visitor = Visitor(reverse=False, dependenciesOnly=True)
+        visitor = Visitor(reverse=False, dependenciesOnly=False)
 
         def discoverVertex(vertex, graph):
             # initialize depths
@@ -1076,7 +1220,7 @@ class Graph(BaseObject):
         self.dfs(visitor=visitor, startNodes=leaves)
 
         # update graph computability status
-        canComputeLeaves = all([self.canCompute(node) for node in leaves])
+        canComputeLeaves = all([self.canComputeTopologically(node) for node in leaves])
         if self._canComputeLeaves != canComputeLeaves:
             self._canComputeLeaves = canComputeLeaves
             self.canComputeLeavesChanged.emit()
@@ -1087,14 +1231,14 @@ class Graph(BaseObject):
 
     compatibilityNodes = Property(BaseObject, lambda self: self._compatibilityNodes, constant=True)
 
-    def dfsMaxEdgeLength(self, startNodes=None):
+    def dfsMaxEdgeLength(self, startNodes=None, dependenciesOnly=True):
         """
         :param startNodes: list of starting nodes. Use all leaves if empty.
         :return:
         """
         nodesStack = []
         edgesScore = defaultdict(lambda: 0)
-        visitor = Visitor(reverse=False, dependenciesOnly=False)
+        visitor = Visitor(reverse=False, dependenciesOnly=dependenciesOnly)
 
         def finishEdge(edge, graph):
             u, v = edge
@@ -1113,7 +1257,7 @@ class Graph(BaseObject):
         self.dfs(visitor=visitor, startNodes=startNodes, longestPathFirst=True)
         return edgesScore
 
-    def flowEdges(self, startNodes=None):
+    def flowEdges(self, startNodes=None, dependenciesOnly=True):
         """
         Return as few edges as possible, such that if there is a directed path from one vertex to another in the
         original graph, there is also such a path in the reduction.
@@ -1122,7 +1266,7 @@ class Graph(BaseObject):
         :return: the remaining edges after a transitive reduction of the graph.
         """
         flowEdges = []
-        edgesScore = self.dfsMaxEdgeLength(startNodes)
+        edgesScore = self.dfsMaxEdgeLength(startNodes, dependenciesOnly)
 
         for link, score in edgesScore.items():
             assert score != 0
@@ -1166,6 +1310,7 @@ class Graph(BaseObject):
     def canSubmitOrCompute(self, startNode):
         """
         Check if a node can be submitted/computed.
+        It does not depend on the topology of the graph and is based on the node status and its dependencies.
 
         Returns:
             int: 0 = cannot be submitted or computed /
@@ -1193,20 +1338,38 @@ class Graph(BaseObject):
         self.dfs(visitor=visitor, startNodes=[startNode])
         return visitor.canCompute + (2 * visitor.canSubmit)
 
-
     def _applyExpr(self):
         with GraphModification(self):
             for node in self._nodes:
                 node._applyExpr()
 
     def toDict(self):
-        return {k: node.toDict() for k, node in self._nodes.objects.items()}
+        nodes = {k: node.toDict() for k, node in self._nodes.objects.items()}
+        nodes = dict(sorted(nodes.items()))
+        return nodes
 
     @Slot(result=str)
     def asString(self):
         return str(self.toDict())
 
     def save(self, filepath=None, setupProjectFile=True, template=False):
+        """
+        Save the current Meshroom graph as a serialized ".mg" file.
+
+        Args:
+            filepath: project filepath to save as.
+            setupProjectFile: Store the reference to the project file and setup the cache directory.
+                              If false, it only saves the graph of the project file as a template.
+            template: If true, saves the current graph as a template.
+        """
+        # Update the saving flag indicating that the current graph is being saved
+        self._saving = True
+        try:
+            self._save(filepath=filepath, setupProjectFile=setupProjectFile, template=template)
+        finally:
+            self._saving = False
+
+    def _save(self, filepath=None, setupProjectFile=True, template=False):
         path = filepath or self._filepath
         if not path:
             raise ValueError("filepath must be specified for unsaved files.")
@@ -1214,14 +1377,18 @@ class Graph(BaseObject):
         self.header[Graph.IO.Keys.ReleaseVersion] = meshroom.__version__
         self.header[Graph.IO.Keys.FileVersion] = Graph.IO.__version__
 
-        # store versions of node types present in the graph (excluding CompatibilityNode instances)
+        # Store versions of node types present in the graph (excluding CompatibilityNode instances)
+        # and remove duplicates
         usedNodeTypes = set([n.nodeDesc.__class__ for n in self._nodes if isinstance(n, Node)])
-
-        self.header[Graph.IO.Keys.NodesVersions] = {
+        # Convert to node types to "name: version"
+        nodesVersions = {
             "{}".format(p.__name__): meshroom.core.nodeVersion(p, "0.0")
             for p in usedNodeTypes
         }
-
+        # Sort them by name (to avoid random order changing from one save to another)
+        nodesVersions = dict(sorted(nodesVersions.items()))
+        # Add it the header
+        self.header[Graph.IO.Keys.NodesVersions] = nodesVersions
         self.header["template"] = template
 
         data = {}
@@ -1241,6 +1408,9 @@ class Graph(BaseObject):
 
         if path != self._filepath and setupProjectFile:
             self._setFilepath(path)
+
+        # update the file date version
+        self._fileDateVersion = os.path.getmtime(path)
 
     def getNonDefaultInputAttributes(self):
         """
@@ -1281,7 +1451,7 @@ class Graph(BaseObject):
                 del graph[nodeName]["internalInputs"]
 
             del graph[nodeName]["outputs"]
-            del graph[nodeName]["uids"]
+            del graph[nodeName]["uid"]
             del graph[nodeName]["internalFolder"]
             del graph[nodeName]["parallelization"]
 
@@ -1330,13 +1500,13 @@ class Graph(BaseObject):
             node.updateStatisticsFromCache()
 
     def updateNodesPerUid(self):
-        """ Update the duplicate nodes (sharing same uid) list of each node. """
-        # First step is to construct a map uid/nodes
+        """ Update the duplicate nodes (sharing same UID) list of each node. """
+        # First step is to construct a map UID/nodes
         nodesPerUid = {}
         for node in self.nodes:
-            uid = node._uids.get(0)
+            uid = node._uid
 
-            # We try to add the node to the list corresponding to this uid
+            # We try to add the node to the list corresponding to this UID
             try:
                 nodesPerUid.get(uid).append(node)
             # If it fails because the uid is not in the map, we add it
@@ -1464,20 +1634,35 @@ class Graph(BaseObject):
         self.updateStatusFromCache(force=True)
         self.cacheDirChanged.emit()
 
+    @property
+    def fileDateVersion(self):
+        return self._fileDateVersion
+
+    @fileDateVersion.setter
+    def fileDateVersion(self, value):
+        self._fileDateVersion = value
+
+    @Slot(str, result=float)
+    def getFileDateVersionFromPath(self, value):
+        return os.path.getmtime(value)
+
     def setVerbose(self, v):
         with GraphModification(self):
             for node in self._nodes:
                 if node.hasAttribute('verbose'):
                     try:
                         node.verbose.value = v
-                    except:
+                    except Exception:
                         pass
 
     nodes = Property(BaseObject, nodes.fget, constant=True)
     edges = Property(BaseObject, edges.fget, constant=True)
     filepathChanged = Signal()
     filepath = Property(str, lambda self: self._filepath, notify=filepathChanged)
-    fileReleaseVersion = Property(str, lambda self: self.header.get(Graph.IO.Keys.ReleaseVersion, "0.0"), notify=filepathChanged)
+    isSaving = Property(bool, isSaving.fget, constant=True)
+    fileReleaseVersion = Property(str, lambda self: self.header.get(Graph.IO.Keys.ReleaseVersion, "0.0"),
+                                  notify=filepathChanged)
+    fileDateVersion = Property(float, fileDateVersion.fget, fileDateVersion.fset, notify=filepathChanged)
     cacheDirChanged = Signal()
     cacheDir = Property(str, cacheDir.fget, cacheDir.fset, notify=cacheDirChanged)
     updated = Signal()
@@ -1485,11 +1670,27 @@ class Graph(BaseObject):
     canComputeLeaves = Property(bool, lambda self: self._canComputeLeaves, notify=canComputeLeavesChanged)
 
 
-def loadGraph(filepath):
+def loadGraph(filepath, strictCompatibility: bool = False) -> Graph:
     """
+    Load a Graph from a Meshroom Graph (.mg) file.
+
+    Args:
+        filepath: The path to the Meshroom Graph file.
+        strictCompatibility: If True, raise a GraphCompatibilityError if the loaded Graph has node compatibility issues.
+
+    Returns:
+        Graph: The loaded Graph instance.
+
+    Raises:
+        GraphCompatibilityError: If the Graph has node compatibility issues and `strictCompatibility` is True.
     """
     graph = Graph("")
     graph.load(filepath)
+
+    compatibilityIssues = len(graph.compatibilityNodes) > 0
+    if compatibilityIssues and strictCompatibility:
+        raise GraphCompatibilityError(filepath, {n.name: str(n.issue) for n in graph.compatibilityNodes})
+
     graph.update()
     return graph
 
@@ -1531,6 +1732,7 @@ def executeGraph(graph, toNodes=None, forceCompute=False, forceStatus=False):
 
     for n, node in enumerate(nodes):
         try:
+            node.preprocess()
             multiChunks = len(node.chunks) > 1
             for c, chunk in enumerate(node.chunks):
                 if multiChunks:
@@ -1541,6 +1743,7 @@ def executeGraph(graph, toNodes=None, forceCompute=False, forceStatus=False):
                     print('\n[{node}/{nbNodes}] {nodeName}'.format(
                         node=n + 1, nbNodes=len(nodes), nodeName=node.nodeType))
                 chunk.process(forceCompute)
+            node.postprocess()
         except Exception as e:
             logging.error("Error on node computation: {}".format(e))
             graph.clearSubmittedNodes()
@@ -1588,4 +1791,3 @@ def submit(graphFile, submitter, toNode=None, submitLabel="{projectName}"):
     graph = loadGraph(graphFile)
     toNodes = graph.findNodes(toNode) if toNode else None
     submitGraph(graph, submitter, toNodes, submitLabel=submitLabel)
-

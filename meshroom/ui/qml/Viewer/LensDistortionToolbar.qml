@@ -1,8 +1,9 @@
-import QtQuick 2.11
-import QtQuick.Controls 2.0
-import QtQuick.Layouts 1.3
-import MaterialIcons 2.2
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
 import Controls 1.0
+import MaterialIcons 2.2
 import Utils 1.0
 
 FloatingPane {
@@ -30,7 +31,7 @@ FloatingPane {
 
     DoubleValidator {
         id: doubleValidator
-        locale: 'C' // use '.' decimal separator disregarding of the system locale
+        locale: 'C'  // Use '.' decimal separator disregarding of the system locale
     }
 
     RowLayout {
@@ -62,7 +63,7 @@ FloatingPane {
             padding : 10
             colors: root.colors
             currentIndex: root.colorIndex
-            onColorPicked: root.colorOffset = colorIndex
+            onColorPicked: function(colorIndex) { root.colorOffset = colorIndex }
         }
 
         // Grid opacity slider
@@ -77,7 +78,7 @@ FloatingPane {
                 ToolTip.text: "Reset Opacity"
 
                 onClicked: {
-                    opacityCtrl.value = opacityDefaultValue;
+                    opacityCtrl.value = opacityDefaultValue
                 }
             }
             TextField {
@@ -118,7 +119,7 @@ FloatingPane {
                 ToolTip.text: "Reset Subdivisions"
 
                 onClicked: {
-                    subdivisionsCtrl.value = subdivisionsDefaultValue;
+                    subdivisionsCtrl.value = subdivisionsDefaultValue
                 }
             }
             TextField {
@@ -147,12 +148,11 @@ FloatingPane {
             }
         }
 
-        //Fill rectangle to have a better UI
+        // Fill rectangle to have a better UI
         Rectangle {
             color: root.palette.window
             Layout.fillWidth: true
         }
-
     }
 
     TextMetrics {

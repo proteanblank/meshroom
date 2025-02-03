@@ -4,6 +4,7 @@ import json
 import os
 
 from meshroom.core import desc
+from meshroom.core.utils import EXR_STORAGE_DATA_TYPE, VERBOSE_LEVEL
 
 
 class PanoramaCompositing(desc.AVCommandLineNode):
@@ -24,107 +25,94 @@ Multiple cameras are contributing to the low frequencies and only the best one c
 
     inputs = [
         desc.File(
-            name='input',
-            label='Input SfMData',
-            description="Input SfMData.",
-            value='',
-            uid=[0],
+            name="input",
+            label="Input SfMData",
+            description="Input SfMData file.",
+            value="",
         ),
         desc.File(
-            name='warpingFolder',
-            label='Warping Folder',
-            description="Panorama Warping results",
-            value='',
-            uid=[0],
+            name="warpingFolder",
+            label="Warping Folder",
+            description="Panorama warping results folder.",
+            value="",
         ),
         desc.File(
-            name='labels',
-            label='Labels image',
-            description="Panorama Seams results",
-            value='',
-            uid=[0],
+            name="labels",
+            label="Labels Images",
+            description="Panorama seams results images.",
+            value="",
         ),
         desc.ChoiceParam(
-            name='compositerType',
-            label='Compositer Type',
-            description='Which compositer should be used to blend images:\n'
-                        ' * multiband: high quality transition by fusing images by frequency bands\n'
-                        ' * replace: debug option with straight transitions\n'
-                        ' * alpha: debug option with linear transitions\n',
-            value='multiband',
-            values=['replace', 'alpha', 'multiband'],
-            exclusive=True,
-            uid=[0]
+            name="compositerType",
+            label="Compositer Type",
+            description="Which compositer should be used to blend images:\n"
+                        " - multiband: high quality transition by fusing images by frequency bands.\n"
+                        " - replace: debug option with straight transitions.\n"
+                        " - alpha: debug option with linear transitions.",
+            value="multiband",
+            values=["replace", "alpha", "multiband"],
         ),
         desc.IntParam(
-            name='forceMinPyramidLevels',
-            label='Min Pyramid Levels',
-            description='Force the minimal number of levels in the pyramid for multiband compositer.',
+            name="forceMinPyramidLevels",
+            label="Min Pyramid Levels",
+            description="Force the minimal number of levels in the pyramid for multiband compositer.",
             value=0,
             range=(0, 16, 1),
-            uid=[0],
-            enabled=lambda node: node.compositerType.value and node.compositerType.value == 'multiband',
+            enabled=lambda node: node.compositerType.value and node.compositerType.value == "multiband",
         ),
         desc.IntParam(
-            name='maxThreads',
-            label='Max Nb Threads',
-            description='Specifies the maximum number of threads to run simultaneously.',
+            name="maxThreads",
+            label="Max Nb Threads",
+            description="Specifies the maximum number of threads to run simultaneously.",
             value=4,
             range=(0, 48, 1),
-            uid=[],
+            invalidate=False,
             advanced=True,
         ),
         desc.BoolParam(
-            name='useTiling',
-            label='Use tiling',
-            description='''Enable tiling mode for parallelization''',
+            name="useTiling",
+            label="Use Tiling",
+            description="Enable tiling mode for parallelization.",
             value=True,
-            uid=[0],
+            exposed=True,
         ),
         desc.ChoiceParam(
-            name='storageDataType',
-            label='Storage Data Type',
-            description='Storage image data type:\n'
-                        ' * float: Use full floating point (32 bits per channel)\n'
-                        ' * half: Use half float (16 bits per channel)\n'
-                        ' * halfFinite: Use half float, but clamp values to avoid non-finite values\n'
-                        ' * auto: Use half float if all values can fit, else use full float\n',
-            value='float',
-            values=['float', 'half', 'halfFinite', 'auto'],
-            exclusive=True,
-            uid=[0],
+            name="storageDataType",
+            label="Storage Data Type",
+            description="Storage image data type:\n"
+                        " - float: Use full floating point (32 bits per channel).\n"
+                        " - half: Use half float (16 bits per channel).\n"
+                        " - halfFinite: Use half float, but clamp values to avoid non-finite values.\n"
+                        " - auto: Use half float if all values can fit, else use full float.",
+            values=EXR_STORAGE_DATA_TYPE,
+            value="float",
         ),
         desc.ChoiceParam(
-            name='overlayType',
-            label='Overlay Type',
-            description='Overlay on top of panorama to analyze transitions:\n'
-                        ' * none: no overlay\n'
-                        ' * borders: display image borders\n'
-                        ' * seams: display transitions between images\n'
-                        ' * all: display borders and seams\n',
-            value='none',
-            values=['none', 'borders', 'seams', 'all'],
-            exclusive=True,
+            name="overlayType",
+            label="Overlay Type",
+            description="Overlay on top of panorama to analyze transitions:\n"
+                        " - none: no overlay.\n"
+                        " - borders: display image borders.\n"
+                        " - seams: display transitions between images.\n"
+                        " - all: display borders and seams.",
+            value="none",
+            values=["none", "borders", "seams", "all"],
             advanced=True,
-            uid=[0]
         ),
         desc.ChoiceParam(
-            name='verboseLevel',
-            label='Verbose Level',
-            description='Verbosity level (fatal, error, warning, info, debug, trace).',
-            value='info',
-            values=['fatal', 'error', 'warning', 'info', 'debug', 'trace'],
-            exclusive=True,
-            uid=[],
+            name="verboseLevel",
+            label="Verbose Level",
+            description="Verbosity level (fatal, error, warning, info, debug, trace).",
+            values=VERBOSE_LEVEL,
+            value="info",
         ),
     ]
 
     outputs = [
         desc.File(
-            name='output',
-            label='Folder',
-            description='',
+            name="output",
+            label="Folder",
+            description="Output folder containing the composited panorama.",
             value=desc.Node.internalFolder,
-            uid=[],
-        )
+        ),
     ]
